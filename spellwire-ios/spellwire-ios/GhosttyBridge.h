@@ -15,5 +15,18 @@ GhosttyResult ghostty_bridge_render_state_colors(GhosttyRenderState state, Ghost
 void ghostty_bridge_terminal_set_colors(GhosttyTerminal terminal, GhosttyColorRgb background, GhosttyColorRgb foreground, GhosttyColorRgb cursor);
 void ghostty_bridge_terminal_scroll_delta(GhosttyTerminal terminal, intptr_t delta);
 void ghostty_bridge_terminal_scroll_bottom(GhosttyTerminal terminal);
+bool ghostty_bridge_terminal_mouse_tracking_enabled(GhosttyTerminal terminal);
+size_t ghostty_bridge_terminal_encode_mouse_scroll(
+    GhosttyTerminal terminal,
+    float x,
+    float y,
+    int direction,
+    uint32_t screen_width,
+    uint32_t screen_height,
+    uint32_t cell_width,
+    uint32_t cell_height,
+    uint8_t *buffer,
+    size_t buffer_size
+);
 
 #endif /* GhosttyBridge_h */

@@ -95,7 +95,7 @@ struct HostEditorView: View {
                 }
 
                 Section("Terminal") {
-                    Toggle("Resume with tmux", isOn: $draft.useTmux)
+                    Toggle("Use tmux", isOn: $draft.useTmux)
                     if draft.useTmux {
                         TextField("tmux session", text: $draft.tmuxSessionName)
                             .textInputAutocapitalization(.never)

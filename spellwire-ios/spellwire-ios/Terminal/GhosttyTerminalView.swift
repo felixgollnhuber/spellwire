@@ -11,7 +11,7 @@ protocol TerminalCanvasViewDelegate: AnyObject {
     func terminalCanvasViewDidRequestTab(_ view: TerminalCanvasView)
     func terminalCanvasViewDidRequestReturn(_ view: TerminalCanvasView)
     func terminalCanvasViewDidRequestBackspace(_ view: TerminalCanvasView)
-    func terminalCanvasView(_ view: TerminalCanvasView, didScrollLines delta: Int)
+    func terminalCanvasView(_ view: TerminalCanvasView, didScrollLines delta: Int, at location: CGPoint)
 }
 
 final class GhosttyTerminalViewController: UIViewController {
@@ -89,8 +89,8 @@ extension GhosttyTerminalViewController: TerminalCanvasViewDelegate {
         session.sendBackspace()
     }
 
-    func terminalCanvasView(_ view: TerminalCanvasView, didScrollLines delta: Int) {
-        session.scroll(delta: delta)
+    func terminalCanvasView(_ view: TerminalCanvasView, didScrollLines delta: Int, at location: CGPoint) {
+        session.scroll(delta: delta, at: location, in: view.bounds.size)
     }
 }
 
@@ -206,7 +206,7 @@ final class TerminalCanvasView: UIView, UIKeyInput {
         let delta = translation - panAccumulator
         let rows = Int(delta / max(cellSize.height, 1))
         if rows != 0 {
-            delegate?.terminalCanvasView(self, didScrollLines: -rows)
+            delegate?.terminalCanvasView(self, didScrollLines: -rows, at: recognizer.location(in: self))
             panAccumulator += CGFloat(rows) * cellSize.height
         }
 
