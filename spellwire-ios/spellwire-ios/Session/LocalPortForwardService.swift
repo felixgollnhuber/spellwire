@@ -6,7 +6,7 @@ import Foundation
 
 nonisolated final class LocalPortForwardService: @unchecked Sendable {
     private let host: HostRecord
-    private let password: String
+    private let identity: SSHClientIdentity
     private let trustedHost: TrustedHost?
     private let onHostKeyChallenge: HostKeyChallengeHandler
     private let onDisconnect: @MainActor (Error?) -> Void
@@ -25,13 +25,13 @@ nonisolated final class LocalPortForwardService: @unchecked Sendable {
 
     init(
         host: HostRecord,
-        password: String,
+        identity: SSHClientIdentity,
         trustedHost: TrustedHost?,
         onHostKeyChallenge: @escaping HostKeyChallengeHandler,
         onDisconnect: @escaping @MainActor (Error?) -> Void
     ) {
         self.host = host
-        self.password = password
+        self.identity = identity
         self.trustedHost = trustedHost
         self.onHostKeyChallenge = onHostKeyChallenge
         self.onDisconnect = onDisconnect
@@ -70,11 +70,6 @@ nonisolated final class LocalPortForwardService: @unchecked Sendable {
     }
 
     private func startSync() {
-        guard !password.isEmpty else {
-            finishStart(result: .failure(TransportError.missingPassword))
-            return
-        }
-
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         self.group = group
 
@@ -92,9 +87,9 @@ nonisolated final class LocalPortForwardService: @unchecked Sendable {
                         let sshHandler = NIOSSHHandler(
                             role: .client(
                                 .init(
-                                    userAuthDelegate: PortForwardPasswordDelegate(
-                                        username: self.host.username,
-                                        password: self.password
+                                    userAuthDelegate: SSHClientPublicKeyAuthDelegate(
+                                        username: self.identity.username,
+                                        privateKey: self.identity.privateKey
                                     ),
                                     serverAuthDelegate: hostKeyDelegate
                                 )
@@ -279,28 +274,6 @@ nonisolated final class LocalPortForwardService: @unchecked Sendable {
 
 nonisolated private final class PortForwardSSHHandlerBox: @unchecked Sendable {
     var handler: NIOSSHHandler?
-}
-
-nonisolated private struct PortForwardPasswordDelegate: NIOSSHClientUserAuthenticationDelegate {
-    let username: String
-    let password: String
-
-    func nextAuthenticationType(
-        availableMethods: NIOSSHAvailableUserAuthenticationMethods,
-        nextChallengePromise: EventLoopPromise<NIOSSHUserAuthenticationOffer?>
-    ) {
-        if availableMethods.contains(.password) {
-            nextChallengePromise.succeed(
-                .init(
-                    username: username,
-                    serviceName: "ssh-connection",
-                    offer: .password(.init(password: password))
-                )
-            )
-        } else {
-            nextChallengePromise.fail(TransportError.connectionFailed("The SSH server did not accept password auth."))
-        }
-    }
 }
 
 nonisolated private final class PortForwardRootErrorHandler: ChannelInboundHandler, @unchecked Sendable {

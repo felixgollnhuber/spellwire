@@ -26,7 +26,7 @@ final class BrowserViewModel {
 
     init(
         host: HostRecord,
-        password: String,
+        identity: SSHDeviceIdentity,
         trustStore: HostTrustStore,
         fileSessionManager: FileSessionManager,
         workingCopyManager: WorkingCopyManager,
@@ -41,9 +41,9 @@ final class BrowserViewModel {
         self.previewStore = previewStore
         let challengeRelay = BrowserChallengeRelay()
         self.challengeRelay = challengeRelay
-        fileSystem = SFTPRemoteFileSystem(
+        fileSystem = try! SFTPRemoteFileSystem(
             host: host,
-            password: password,
+            identity: identity.clientIdentity(username: host.username),
             trustedHost: trustStore.trustedHost(for: host.id)
         ) { challenge, reply in
             challengeRelay.handler?(challenge, reply)

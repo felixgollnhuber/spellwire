@@ -53,7 +53,7 @@ nonisolated enum TerminalConnectionState: Equatable, Sendable {
 }
 
 nonisolated enum TransportError: LocalizedError, Sendable {
-    case missingPassword
+    case missingIdentity
     case rejectedHostKey
     case hostKeyMismatch(expected: String, received: String)
     case invalidChannelType
@@ -61,8 +61,8 @@ nonisolated enum TransportError: LocalizedError, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case .missingPassword:
-            "Password is required."
+        case .missingIdentity:
+            "Spellwire could not load its SSH identity."
         case .rejectedHostKey:
             "The host key was not trusted."
         case .hostKeyMismatch(let expected, let received):
