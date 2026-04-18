@@ -301,6 +301,7 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
     private var connectContinuation: CheckedContinuation<Void, Error>?
     private var pendingResponses: [String: CheckedContinuation<Data, Error>] = [:]
     private var receiveBuffer = Data()
+    private var latestPlaintextOutput: String?
 
     var eventHandler: ((HelperEventEnvelope) -> Void)?
 
@@ -325,11 +326,13 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
             return
         }
 
+        latestPlaintextOutput = nil
+
         let transport = SSHExecTransport(
             host: host,
             identity: try identity.clientIdentity(username: host.username),
             trustedHost: trustedHost,
-            command: "spellwire rpc",
+            command: helperRPCLaunchCommand,
             onHostKeyChallenge: onHostKeyChallenge
         )
         transport.delegate = self
@@ -344,6 +347,7 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
     func disconnect() {
         transport?.disconnect()
         transport = nil
+        latestPlaintextOutput = nil
     }
 
     func request<Result: Decodable, Params: Encodable>(method: String, params: Params) async throws -> Result {
@@ -383,7 +387,14 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
     }
 
     func transportDidDisconnect(error: Error?) {
-        let disconnectError = error ?? TransportError.connectionFailed("The helper RPC connection closed.")
+        let disconnectError: Error
+        if let error {
+            disconnectError = error
+        } else if let latestPlaintextOutput, !latestPlaintextOutput.isEmpty {
+            disconnectError = TransportError.connectionFailed(latestPlaintextOutput)
+        } else {
+            disconnectError = TransportError.connectionFailed("The helper RPC connection closed.")
+        }
         connectContinuation?.resume(throwing: disconnectError)
         connectContinuation = nil
         let continuations = pendingResponses.values
@@ -392,10 +403,17 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
             continuation.resume(throwing: disconnectError)
         }
         transport = nil
+        latestPlaintextOutput = nil
     }
 
     private func handleLine(_ line: Data) {
         guard let envelope = try? decoder.decode(BaseEnvelope.self, from: line) else {
+            if let text = String(data: line, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !text.isEmpty
+            {
+                latestPlaintextOutput = text
+            }
             return
         }
 
@@ -413,5 +431,11 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
         default:
             break
         }
+    }
+
+    private var helperRPCLaunchCommand: String {
+        """
+        export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin:$HOME/.local/bin:$HOME/Library/pnpm:$PATH"; if command -v spellwire >/dev/null 2>&1; then exec "$(command -v spellwire)" rpc; elif [ -x "$HOME/.local/bin/spellwire" ]; then exec "$HOME/.local/bin/spellwire" rpc; elif [ -x "$HOME/Library/pnpm/spellwire" ]; then exec "$HOME/Library/pnpm/spellwire" rpc; elif [ -x /opt/homebrew/bin/spellwire ]; then exec /opt/homebrew/bin/spellwire rpc; elif [ -x /usr/local/bin/spellwire ]; then exec /usr/local/bin/spellwire rpc; else for fnm_bin in "$HOME/.local/share/fnm/node-versions"/*/installation/bin; do if [ -x "$fnm_bin/spellwire" ]; then export PATH="$fnm_bin:$PATH"; exec "$fnm_bin/spellwire" rpc; fi; done; if [ -x /bin/zsh ]; then exec /bin/zsh -lc 'for fnm_bin in "$HOME/.local/share/fnm/node-versions"/*/installation/bin; do export PATH="$fnm_bin:$PATH"; done; spellwire rpc'; elif [ -x /bin/bash ]; then exec /bin/bash -lc 'for fnm_bin in "$HOME/.local/share/fnm/node-versions"/*/installation/bin; do export PATH="$fnm_bin:$PATH"; done; spellwire rpc'; else echo "spellwire not found in PATH=$PATH" >&2; exit 127; fi; fi
+        """
     }
 }

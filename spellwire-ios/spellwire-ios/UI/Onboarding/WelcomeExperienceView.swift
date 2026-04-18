@@ -7,6 +7,11 @@ private enum HostSetupField: Hashable {
     case username
 }
 
+private enum SetupCopyFeedbackTarget {
+    case key
+    case command
+}
+
 struct WelcomeExperienceView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -15,7 +20,8 @@ struct WelcomeExperienceView: View {
     @State private var connectionProbe = HostConnectionProbe()
     @State private var isFinishingSetup = false
     @State private var errorMessage: String?
-    @State private var shareItems: [Any] = []
+    @State private var copyFeedbackTarget: SetupCopyFeedbackTarget?
+    @State private var copyFeedbackGeneration = 0
     @FocusState private var focusedField: HostSetupField?
 
     var body: some View {
@@ -51,18 +57,14 @@ struct WelcomeExperienceView: View {
         .onDisappear {
             connectionProbe.disconnect()
         }
-        .sheet(
-            isPresented: Binding(
-                get: { !shareItems.isEmpty },
-                set: { if !$0 { shareItems = [] } }
-            )
-        ) {
-            ActivityView(activityItems: shareItems)
-        }
     }
 
     private var welcomeScreen: some View {
-        SpellwireWelcomeScaffold(isCompact: false, pinsContentToBottom: true) {
+        SpellwireWelcomeScaffold(
+            isCompact: false,
+            pinsContentToBottom: true,
+            usesSafeAreaTopInset: true
+        ) {
             welcomeContent
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -101,9 +103,23 @@ struct WelcomeExperienceView: View {
     }
 
     private var setupScreen: some View {
+        SpellwireWelcomeScaffold(
+            isCompact: false,
+            pinsContentToBottom: true,
+            usesSafeAreaTopInset: false
+        ) {
+            setupInstructionsContent
+        }
+    }
+
+    private var setupInputScreen: some View {
         ZStack {
-            SpellwireWelcomeScaffold(isCompact: focusedField != nil, pinsContentToBottom: false) {
-                setupContent
+            SpellwireWelcomeScaffold(
+                isCompact: focusedField != nil,
+                pinsContentToBottom: true,
+                usesSafeAreaTopInset: false
+            ) {
+                setupInputContent
             }
 
             if isFinishingSetup {
@@ -112,25 +128,63 @@ struct WelcomeExperienceView: View {
                     .zIndex(1)
             }
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            focusedField = nil
+        }
         .animation(.easeInOut(duration: reduceMotion ? 0.12 : 0.24), value: focusedField != nil)
-        .navigationTitle("Set Up Your Mac")
-        .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var setupContent: some View {
-        VStack(alignment: .leading, spacing: 18) {
+    private var setupInstructionsContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("1. Enable Remote Login on your Mac.")
+                Text("2. Install the helper from npm and run `spellwire up`.")
+                Text("3. Run the setup command on your Mac, or add this public key manually.")
+            }
+            .font(.spellwireBody(14, weight: .medium))
+            .foregroundStyle(SpellwirePalette.secondaryForeground)
+            .spellwireBlurRiseOnAppear()
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Connect your Mac")
-                    .font(.spellwireDisplay(focusedField == nil ? 34 : 28))
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Enter the SSH host, port, and username. Spellwire uses one Ed25519 key, pins the host fingerprint, and then opens the workspace.")
-                    .font(.spellwireBody(16))
-                    .foregroundStyle(SpellwirePalette.secondaryForeground)
-                    .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    setupCopyButton(
+                        target: .key,
+                        title: "Copy Key",
+                        systemImage: "doc.on.doc"
+                    ) {
+                        UIPasteboard.general.string = appModel.publicKeyOpenSSH
+                    }
+
+                    setupCopyButton(
+                        target: .command,
+                        title: "Copy Command",
+                        systemImage: "terminal"
+                    ) {
+                        UIPasteboard.general.string = authorizedKeysInstallCommand
+                    }
+                }
             }
             .spellwireBlurRiseOnAppear()
 
+            SpellwireActionNavigationLink(
+                destination: setupInputScreen,
+                variant: .primary,
+                size: .xl,
+                fullWidth: true
+            ) {
+                HStack(spacing: 10) {
+                    Text("Next")
+                    Image(systemName: "arrow.right")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .spellwireBlurRiseOnAppear()
+        }
+    }
+
+    private var setupInputContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
             SpellwireGlassPanel {
                 VStack(spacing: 0) {
                     HostSetupRow(
@@ -172,60 +226,22 @@ struct WelcomeExperienceView: View {
                         field: .username,
                         isSecure: false
                     )
-
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("1. Enable Remote Login on your Mac.")
-                    Text("2. Install the helper from npm and run `spellwire up`.")
-                    Text("3. Run the setup command on your Mac, or add this public key manually.")
-                }
-                .font(.spellwireBody(14, weight: .medium))
-                .foregroundStyle(SpellwirePalette.secondaryForeground)
-
-                Text(appModel.publicKeyOpenSSH)
-                    .font(.system(.footnote, design: .monospaced))
-                    .textSelection(.enabled)
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-
-                VStack(spacing: 12) {
-                    HStack(spacing: 12) {
-                        SpellwireActionButton(variant: .secondary, size: .md) {
-                            UIPasteboard.general.string = appModel.publicKeyOpenSSH
-                        } label: {
-                            Label("Copy Key", systemImage: "doc.on.doc")
-                        }
-
-                        SpellwireActionButton(variant: .secondary, size: .md) {
-                            UIPasteboard.general.string = authorizedKeysInstallCommand
-                        } label: {
-                            Label("Copy Command", systemImage: "terminal")
-                        }
-                    }
-
-                    HStack {
-                        SpellwireActionButton(variant: .secondary, size: .md) {
-                            shareItems = [authorizedKeysInstallCommand]
-                        } label: {
-                            Label("Share Command", systemImage: "square.and.arrow.up")
-                        }
-                    }
-                }
-
-                if let errorMessage {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                        .font(.spellwireBody(14, weight: .medium))
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if let status = statusCopy {
-                    Label(status.title, systemImage: status.symbol)
-                        .font(.spellwireBody(14, weight: .medium))
-                        .foregroundStyle(status.color)
                 }
             }
             .spellwireBlurRiseOnAppear()
+
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.spellwireBody(14, weight: .medium))
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .spellwireBlurRiseOnAppear()
+            } else if let status = statusCopy {
+                Label(status.title, systemImage: status.symbol)
+                    .font(.spellwireBody(14, weight: .medium))
+                    .foregroundStyle(status.color)
+                    .spellwireBlurRiseOnAppear()
+            }
 
             SpellwireActionButton(
                 variant: .primary,
@@ -281,6 +297,52 @@ struct WelcomeExperienceView: View {
 
     private var authorizedKeysInstallCommand: String {
         SSHSetupCommand.installAuthorizedKeyCommand(for: appModel.publicKeyOpenSSH)
+    }
+
+    @ViewBuilder
+    private func setupCopyButton(
+        target: SetupCopyFeedbackTarget,
+        title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        let isCopied = copyFeedbackTarget == target
+
+        SpellwireActionButton(
+            variant: isCopied ? .primary : .secondary,
+            size: .md,
+            tint: SpellwirePalette.accentSuccess
+        ) {
+            action()
+            presentCopyFeedback(for: target)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: isCopied ? "checkmark" : systemImage)
+                    .contentTransition(.symbolEffect(.replace))
+                Text(isCopied ? "Copied" : title)
+                    .contentTransition(.opacity)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .animation(.spring(response: 0.28, dampingFraction: 0.86), value: isCopied)
+    }
+
+    private func presentCopyFeedback(for target: SetupCopyFeedbackTarget) {
+        copyFeedbackGeneration += 1
+        let generation = copyFeedbackGeneration
+
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+            copyFeedbackTarget = target
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1050))
+            guard copyFeedbackGeneration == generation else { return }
+
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+                copyFeedbackTarget = nil
+            }
+        }
     }
 
     private func connect() {
@@ -347,6 +409,7 @@ struct WelcomeExperienceView: View {
 private struct SpellwireWelcomeScaffold<BottomContent: View>: View {
     let isCompact: Bool
     let pinsContentToBottom: Bool
+    let usesSafeAreaTopInset: Bool
     @ViewBuilder let bottomContent: BottomContent
 
     var body: some View {
@@ -360,7 +423,10 @@ private struct SpellwireWelcomeScaffold<BottomContent: View>: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 24)
-            .padding(.top, max(24, proxy.safeAreaInsets.top + 12))
+            .padding(
+                .top,
+                usesSafeAreaTopInset ? max(24, proxy.safeAreaInsets.top + 12) : 12
+            )
             .padding(.bottom, 28)
             .frame(
                 maxWidth: .infinity,
