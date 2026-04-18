@@ -2,10 +2,18 @@ import Foundation
 import Observation
 import UIKit
 
+struct TerminalSessionContext: Hashable, Sendable {
+    let title: String
+    let workingDirectory: String?
+    let prefersTmuxResume: Bool
+    let tmuxSessionName: String?
+}
+
 @MainActor
 @Observable
 final class TerminalSessionCoordinator: TerminalTransportDelegate {
     let host: HostRecord
+    let context: TerminalSessionContext
     let identity: SSHDeviceIdentity
     let trustStore: HostTrustStore
     let terminal: GhosttyTerminalController
@@ -19,12 +27,23 @@ final class TerminalSessionCoordinator: TerminalTransportDelegate {
     private var reconnectTask: Task<Void, Never>?
     private var shouldReconnect = true
 
-    init?(host: HostRecord, identity: SSHDeviceIdentity, trustStore: HostTrustStore) {
+    init?(
+        host: HostRecord,
+        identity: SSHDeviceIdentity,
+        trustStore: HostTrustStore,
+        context: TerminalSessionContext? = nil
+    ) {
         guard let terminal = GhosttyTerminalController() else {
             return nil
         }
 
         self.host = host
+        self.context = context ?? TerminalSessionContext(
+            title: host.nickname,
+            workingDirectory: nil,
+            prefersTmuxResume: host.prefersTmuxResume,
+            tmuxSessionName: host.tmuxSessionName
+        )
         self.identity = identity
         self.trustStore = trustStore
         self.terminal = terminal
@@ -113,7 +132,7 @@ final class TerminalSessionCoordinator: TerminalTransportDelegate {
     func scroll(delta: Int, at location: CGPoint, in viewSize: CGSize) {
         guard delta != 0 else { return }
 
-        if host.prefersTmuxResume,
+        if context.prefersTmuxResume,
            let payload = terminal.encodeMouseScroll(delta: delta, at: location, in: viewSize)
         {
             send(payload)
@@ -189,7 +208,8 @@ final class TerminalSessionCoordinator: TerminalTransportDelegate {
             let transport = SSHTerminalTransport(
                 host: host,
                 identity: try identity.clientIdentity(username: host.username),
-                trustedHost: trustedHost
+                trustedHost: trustedHost,
+                context: context
             ) { [weak self] challenge, reply in
                 guard let self else { return }
                 self.state = .trustPrompt

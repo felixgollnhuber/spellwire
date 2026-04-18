@@ -94,6 +94,7 @@ struct HelperStatusSnapshot: Codable, Hashable, Sendable {
     let helperVersion: String
     let daemonRunning: Bool
     let appServerRunning: Bool
+    let attachmentsRootPath: String
     let socketPath: String
     let logFilePath: String
     let codexHome: String?
@@ -153,12 +154,80 @@ struct CodexTimelineItem: Codable, Hashable, Sendable, Identifiable {
     let source: String
 }
 
+struct CodexSandboxPolicy: Codable, Hashable, Sendable {
+    let type: String
+}
+
+struct CodexGitInfo: Codable, Hashable, Sendable {
+    let sha: String?
+    let branch: String?
+    let originURL: String?
+}
+
+struct CodexThreadRuntime: Codable, Hashable, Sendable {
+    let cwd: String
+    let model: String?
+    let modelProvider: String?
+    let serviceTier: String?
+    let reasoningEffort: String?
+    let approvalPolicy: String?
+    let sandbox: CodexSandboxPolicy?
+    let git: CodexGitInfo?
+}
+
 struct CodexThreadDetail: Codable, Hashable, Sendable {
     var thread: CodexThreadSummary
     let project: CodexProject
     var timeline: [CodexTimelineItem]
     var activeTurnID: String?
     let recovery: CodexRecoveryState?
+    var runtime: CodexThreadRuntime
+}
+
+struct ReasoningEffortOption: Codable, Hashable, Sendable {
+    let reasoningEffort: String
+    let description: String
+}
+
+struct ModelOption: Codable, Hashable, Sendable, Identifiable {
+    let id: String
+    let model: String
+    let displayName: String
+    let description: String
+    let hidden: Bool
+    let supportedReasoningEfforts: [ReasoningEffortOption]
+    let defaultReasoningEffort: String
+    let inputModalities: [String]
+    let additionalSpeedTiers: [String]
+    let isDefault: Bool
+}
+
+struct BranchInfo: Codable, Hashable, Sendable, Identifiable {
+    var id: String { name }
+
+    let name: String
+    let isCurrent: Bool
+}
+
+struct BranchSwitchResult: Codable, Hashable, Sendable {
+    let cwd: String
+    let currentBranch: String
+}
+
+struct CodexTurnInputItem: Codable, Hashable, Sendable {
+    let type: String
+    let text: String?
+    let path: String?
+    let url: String?
+    let name: String?
+
+    static func text(_ value: String) -> CodexTurnInputItem {
+        CodexTurnInputItem(type: "text", text: value, path: nil, url: nil, name: nil)
+    }
+
+    static func localImage(path: String) -> CodexTurnInputItem {
+        CodexTurnInputItem(type: "localImage", text: nil, path: path, url: nil, name: nil)
+    }
 }
 
 struct TurnMutationResult: Codable, Hashable, Sendable {

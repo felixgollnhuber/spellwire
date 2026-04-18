@@ -3,8 +3,13 @@ import SwiftUI
 struct TerminalSessionView: View {
     @State private var coordinator: TerminalSessionCoordinator
 
-    init(host: HostRecord, identity: SSHDeviceIdentity, trustStore: HostTrustStore) {
-        _coordinator = State(initialValue: TerminalSessionCoordinator(host: host, identity: identity, trustStore: trustStore)!)
+    init(
+        host: HostRecord,
+        identity: SSHDeviceIdentity,
+        trustStore: HostTrustStore,
+        context: TerminalSessionContext? = nil
+    ) {
+        _coordinator = State(initialValue: TerminalSessionCoordinator(host: host, identity: identity, trustStore: trustStore, context: context)!)
     }
 
     var body: some View {
@@ -14,7 +19,7 @@ struct TerminalSessionView: View {
                 .background(Color.black)
             accessoryRow
         }
-        .navigationTitle(coordinator.host.nickname)
+        .navigationTitle(coordinator.context.title)
         .navigationBarTitleDisplayMode(.inline)
         .task {
             coordinator.connectIfNeeded()

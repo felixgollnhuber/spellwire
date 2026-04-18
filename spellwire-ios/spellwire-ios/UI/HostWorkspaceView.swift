@@ -14,6 +14,7 @@ struct HostWorkspaceView: View {
             identity: appModel.sshIdentity,
             trustStore: appModel.trustStore,
             browserDefaultScheme: (try? appModel.browserSettingsStore.load().defaultScheme) ?? BrowserSettings.default.defaultScheme,
+            projectPreviewPortStore: appModel.projectPreviewPortStore,
             fileSessionManager: appModel.fileSessionManager,
             workingCopyManager: appModel.workingCopyManager,
             conflictResolver: appModel.conflictResolver,

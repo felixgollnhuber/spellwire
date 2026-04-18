@@ -33,6 +33,9 @@ final class HostBrowserCoordinator {
     let identity: SSHDeviceIdentity
     let trustStore: HostTrustStore
     let defaultScheme: String
+    let title: String
+    let tunnelPortOverride: Int?
+    let directURLOverride: String?
     let page: WebPage
 
     var state: State = .idle
@@ -45,11 +48,22 @@ final class HostBrowserCoordinator {
     private var pageLoadTask: Task<Void, Never>?
     private var lastLoadedURL: URL?
 
-    init(host: HostRecord, identity: SSHDeviceIdentity, trustStore: HostTrustStore, defaultScheme: String) {
+    init(
+        host: HostRecord,
+        identity: SSHDeviceIdentity,
+        trustStore: HostTrustStore,
+        defaultScheme: String,
+        title: String? = nil,
+        tunnelPortOverride: Int? = nil,
+        directURLOverride: String? = nil
+    ) {
         self.host = host
         self.identity = identity
         self.trustStore = trustStore
         self.defaultScheme = defaultScheme
+        self.title = title ?? host.nickname
+        self.tunnelPortOverride = tunnelPortOverride
+        self.directURLOverride = directURLOverride
 
         var configuration = WebPage.Configuration()
         configuration.defaultNavigationPreferences.preferredContentMode = .mobile
@@ -102,7 +116,8 @@ final class HostBrowserCoordinator {
 
         pageLoadTask?.cancel()
         lastLoadedURL = requestedURL
-        let nextState: State = host.browserUsesTunnel ? .tunnelReady : .connected
+        let usesTunnel = tunnelPortOverride != nil || host.browserUsesTunnel
+        let nextState: State = usesTunnel ? .tunnelReady : .connected
         state = nextState
 
         pageLoadTask = Task { [weak self] in
@@ -129,8 +144,9 @@ final class HostBrowserCoordinator {
             let remoteURL = try normalizedRemoteURL()
             state = .preparing
 
-            if host.browserUsesTunnel {
-                let tunnelTargetPort = host.browserForwardedPort
+            let usesTunnel = tunnelPortOverride != nil || host.browserUsesTunnel
+            if usesTunnel {
+                let tunnelTargetPort = tunnelPortOverride ?? host.browserForwardedPort
                 guard let tunnelTargetPort else {
                     throw TransportError.connectionFailed("Configure a forwarded port for the SSH tunnel.")
                 }
@@ -169,6 +185,13 @@ final class HostBrowserCoordinator {
     }
 
     private func normalizedRemoteURL() throws -> URL {
+        if let tunnelPortOverride {
+            guard let url = URL(string: "http://127.0.0.1:\(tunnelPortOverride)") else {
+                throw TransportError.connectionFailed("The forwarded browser port is invalid.")
+            }
+            return url
+        }
+
         if host.browserUsesTunnel {
             guard let port = host.browserForwardedPort else {
                 throw TransportError.connectionFailed("Configure a forwarded port for this browser first.")
@@ -180,7 +203,9 @@ final class HostBrowserCoordinator {
             return url
         }
 
-        guard let rawURL = host.browserURLString?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let rawURLCandidate = directURLOverride ?? host.browserURLString
+
+        guard let rawURL = rawURLCandidate?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawURL.isEmpty else {
             throw TransportError.connectionFailed("Configure a browser URL for this host first.")
         }
@@ -189,7 +214,7 @@ final class HostBrowserCoordinator {
             return url
         }
 
-        let inferredScheme = host.browserUsesTunnel ? "http" : defaultScheme
+        let inferredScheme = (tunnelPortOverride != nil || host.browserUsesTunnel) ? "http" : defaultScheme
 
         guard let url = URL(string: "\(inferredScheme)://\(rawURL)") else {
             throw TransportError.connectionFailed("The browser URL is invalid.")
@@ -223,21 +248,27 @@ struct HostBrowserView: View {
         host: HostRecord,
         identity: SSHDeviceIdentity,
         trustStore: HostTrustStore,
-        defaultScheme: String
+        defaultScheme: String,
+        title: String? = nil,
+        tunnelPortOverride: Int? = nil,
+        directURLOverride: String? = nil
     ) {
         _coordinator = State(
             initialValue: HostBrowserCoordinator(
                 host: host,
                 identity: identity,
                 trustStore: trustStore,
-                defaultScheme: defaultScheme
+                defaultScheme: defaultScheme,
+                title: title,
+                tunnelPortOverride: tunnelPortOverride,
+                directURLOverride: directURLOverride
             )
         )
     }
 
     var body: some View {
         browserContent
-        .navigationTitle(coordinator.host.nickname)
+        .navigationTitle(coordinator.title)
         .navigationBarTitleDisplayMode(.inline)
         .task {
             coordinator.startIfNeeded()

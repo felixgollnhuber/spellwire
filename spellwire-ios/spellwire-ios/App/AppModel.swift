@@ -9,6 +9,7 @@ final class AppModel {
     let identityStore: SSHIdentityStore
     let trustStore: HostTrustStore
     let browserSettingsStore: BrowserSettingsStore
+    let projectPreviewPortStore: ProjectPreviewPortStore
     let fileSessionManager: FileSessionManager
     let workingCopyManager: WorkingCopyManager
     let conflictResolver: ConflictResolver
@@ -26,6 +27,7 @@ final class AppModel {
             identityStore = SSHIdentityStore()
             trustStore = HostTrustStore(appDirectories: appDirectories)
             browserSettingsStore = BrowserSettingsStore(appDirectories: appDirectories)
+            projectPreviewPortStore = ProjectPreviewPortStore(appDirectories: appDirectories)
             fileSessionManager = FileSessionManager(appDirectories: appDirectories)
             workingCopyManager = WorkingCopyManager(appDirectories: appDirectories)
             conflictResolver = ConflictResolver()
@@ -70,6 +72,7 @@ final class AppModel {
         try trustStore.clearAll()
         try fileSessionManager.clearAll()
         try browserSettingsStore.save(.default)
+        try projectPreviewPortStore.save([:])
         try identityStore.deleteIdentity()
         sshIdentity = try identityStore.loadOrCreateIdentity()
 

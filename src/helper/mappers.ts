@@ -1,8 +1,11 @@
 import path from "node:path";
 import type {
+    CodexGitInfo,
     CodexProject,
     CodexRecoveryState,
+    CodexSandboxPolicy,
     CodexThreadDetail,
+    CodexThreadRuntime,
     CodexThreadSummary,
     CodexTimelineItem,
 } from "../shared/protocol.js";
@@ -35,7 +38,41 @@ interface RawThread {
     createdAt: number;
     source: unknown;
     agentNickname: string | null;
+    gitInfo?: {
+        sha?: string | null;
+        branch?: string | null;
+        originUrl?: string | null;
+    } | null;
     turns: RawTurn[];
+}
+
+function mapGitInfo(gitInfo: RawThread["gitInfo"]): CodexGitInfo | null {
+    if (!gitInfo) {
+        return null;
+    }
+
+    return {
+        sha: gitInfo.sha ?? null,
+        branch: gitInfo.branch ?? null,
+        originURL: gitInfo.originUrl ?? null,
+    };
+}
+
+export function mapSandboxPolicy(value: unknown): CodexSandboxPolicy | null {
+    if (!value || typeof value !== "object") {
+        return null;
+    }
+
+    const type = (value as { type?: unknown }).type;
+    switch (type) {
+        case "dangerFullAccess":
+        case "readOnly":
+        case "workspaceWrite":
+        case "externalSandbox":
+            return { type };
+        default:
+            return null;
+    }
 }
 
 function sourceKindForThread(source: unknown): string {
@@ -94,7 +131,7 @@ function joinUserInput(content: unknown): string {
             if ((part as { type?: unknown }).type === "skill") {
                 return `$${String((part as { name?: unknown }).name ?? "skill")}`;
             }
-            if ((part as { type?: unknown }).type === "image") {
+            if ((part as { type?: unknown }).type === "image" || (part as { type?: unknown }).type === "localImage") {
                 return "[image]";
             }
             return "";
@@ -245,6 +282,7 @@ export function detailFromThread(
     archived: boolean,
     recovery: CodexRecoveryState | null,
     project: CodexProject,
+    runtime: CodexThreadRuntime,
 ): CodexThreadDetail {
     const summary = threadToSummary(thread, archived);
     const timeline = thread.turns
@@ -273,5 +311,9 @@ export function detailFromThread(
         timeline: [...timeline, ...recoveryTimeline],
         activeTurnID: activeTurn?.id ?? null,
         recovery,
+        runtime: {
+            ...runtime,
+            git: runtime.git ?? mapGitInfo(thread.gitInfo),
+        },
     };
 }

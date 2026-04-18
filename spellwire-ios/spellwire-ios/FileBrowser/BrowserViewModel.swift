@@ -74,7 +74,11 @@ final class BrowserViewModel {
         reply?(approved)
     }
 
-    func initialPath() async throws -> String {
+    func initialPath(preferredPath: String? = nil) async throws -> String {
+        if let preferredPath, !preferredPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return try await fileSystem.canonicalize(path: preferredPath)
+        }
+
         if let lastVisitedPath = try? fileSessionManager.lastVisitedPath(for: host.id) {
             return try await fileSystem.canonicalize(path: lastVisitedPath)
         }

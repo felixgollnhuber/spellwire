@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 export interface RuntimePaths {
     packageRoot: string;
     runtimeRoot: string;
+    attachmentsRootPath: string;
     socketPath: string;
     stateFilePath: string;
     logFilePath: string;
@@ -58,6 +59,7 @@ export function runtimePaths(): RuntimePaths {
     return {
         packageRoot,
         runtimeRoot,
+        attachmentsRootPath: path.join(runtimeRoot, "attachments"),
         socketPath: path.join(runRoot, "spellwire-helper.sock"),
         stateFilePath: path.join(stateRoot, "helper-state.json"),
         logFilePath: path.join(logRoot, "helper.jsonl"),
@@ -89,6 +91,7 @@ function resolveExecutablePath(command: string): string | null {
 
 export function ensureRuntimeDirectories(paths: RuntimePaths): void {
     mkdirSync(paths.runtimeRoot, { recursive: true });
+    mkdirSync(paths.attachmentsRootPath, { recursive: true });
     mkdirSync(path.dirname(paths.socketPath), { recursive: true });
     mkdirSync(path.dirname(paths.stateFilePath), { recursive: true });
     mkdirSync(path.dirname(paths.logFilePath), { recursive: true });

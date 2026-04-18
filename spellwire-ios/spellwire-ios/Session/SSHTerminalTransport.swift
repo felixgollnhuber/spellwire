@@ -10,6 +10,7 @@ nonisolated final class SSHTerminalTransport: TerminalTransport, @unchecked Send
     private let host: HostRecord
     private let identity: SSHClientIdentity
     private let trustedHost: TrustedHost?
+    private let context: TerminalSessionContext
     private let onHostKeyChallenge: @MainActor (HostKeyChallenge, @escaping (Bool) -> Void) -> Void
 
     private let workQueue = DispatchQueue(label: "xyz.floritzmaier.spellwire-ios.ssh.transport")
@@ -24,11 +25,13 @@ nonisolated final class SSHTerminalTransport: TerminalTransport, @unchecked Send
         host: HostRecord,
         identity: SSHClientIdentity,
         trustedHost: TrustedHost?,
+        context: TerminalSessionContext,
         onHostKeyChallenge: @escaping @MainActor (HostKeyChallenge, @escaping (Bool) -> Void) -> Void
     ) {
         self.host = host
         self.identity = identity
         self.trustedHost = trustedHost
+        self.context = context
         self.onHostKeyChallenge = onHostKeyChallenge
     }
 
@@ -124,10 +127,13 @@ nonisolated final class SSHTerminalTransport: TerminalTransport, @unchecked Send
                 }
 
                 let launchMode: SSHLaunchMode
-                if self.host.prefersTmuxResume {
-                    launchMode = .tmux(sessionName: self.host.tmuxSessionName ?? "main")
+                if self.context.prefersTmuxResume {
+                    launchMode = .tmux(
+                        sessionName: self.context.tmuxSessionName ?? "main",
+                        workingDirectory: self.context.workingDirectory
+                    )
                 } else {
-                    launchMode = .shell
+                    launchMode = .shell(workingDirectory: self.context.workingDirectory)
                 }
 
                 return childChannel.eventLoop.makeCompletedFuture {
@@ -223,17 +229,26 @@ nonisolated final class SSHTerminalTransport: TerminalTransport, @unchecked Send
 }
 
 nonisolated private enum SSHLaunchMode {
-    case shell
-    case tmux(sessionName: String)
+    case shell(workingDirectory: String?)
+    case tmux(sessionName: String, workingDirectory: String?)
 
-    static func tmuxCommand(sessionName: String) -> String {
+    static func tmuxCommand(sessionName: String, workingDirectory: String?) -> String {
         let escapedSession = RemoteShellCommand.singleQuote(sessionName)
+        let changeDirectory = workingDirectory.map { "cd \(RemoteShellCommand.singleQuote($0)) && " } ?? ""
         let script = """
-        export PATH="/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:$HOME/.local/bin:$PATH"; if command -v tmux >/dev/null 2>&1; then exec "$(command -v tmux)" start-server \\; set-option -g mouse on \\; new-session -A -s \(escapedSession); elif [ -x /opt/homebrew/bin/tmux ]; then exec /opt/homebrew/bin/tmux start-server \\; set-option -g mouse on \\; new-session -A -s \(escapedSession); elif [ -x /usr/local/bin/tmux ]; then exec /usr/local/bin/tmux start-server \\; set-option -g mouse on \\; new-session -A -s \(escapedSession); else echo "tmux not found in PATH=$PATH" >&2; exit 127; fi
+        \(changeDirectory)export PATH="/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:$HOME/.local/bin:$PATH"; if command -v tmux >/dev/null 2>&1; then exec "$(command -v tmux)" start-server \\; set-option -g mouse on \\; new-session -A -s \(escapedSession); elif [ -x /opt/homebrew/bin/tmux ]; then exec /opt/homebrew/bin/tmux start-server \\; set-option -g mouse on \\; new-session -A -s \(escapedSession); elif [ -x /usr/local/bin/tmux ]; then exec /usr/local/bin/tmux start-server \\; set-option -g mouse on \\; new-session -A -s \(escapedSession); else echo "tmux not found in PATH=$PATH" >&2; exit 127; fi
         """
 
         // SSH exec requests are parsed by the account shell on many hosts. Wrap
         // the POSIX tmux bootstrap so common login shells all behave the same.
+        return RemoteShellCommand.posixBootstrap(script: script)
+    }
+
+    static func shellCommand(workingDirectory: String?) -> String {
+        let changeDirectory = workingDirectory.map { "cd \(RemoteShellCommand.singleQuote($0)) && " } ?? ""
+        let script = """
+        \(changeDirectory)exec "${SHELL:-/bin/sh}" -l
+        """
         return RemoteShellCommand.posixBootstrap(script: script)
     }
 }
@@ -291,15 +306,18 @@ nonisolated private final class SSHSessionChannelHandler: ChannelDuplexHandler, 
         context.triggerUserOutboundEvent(pty, promise: nil)
         context.triggerUserOutboundEvent(environment, promise: nil)
         switch launchMode {
-        case .shell:
-            context.triggerUserOutboundEvent(
-                SSHChannelRequestEvent.ShellRequest(wantReply: false),
-                promise: nil
-            )
-        case .tmux(let sessionName):
+        case .shell(let workingDirectory):
             context.triggerUserOutboundEvent(
                 SSHChannelRequestEvent.ExecRequest(
-                    command: SSHLaunchMode.tmuxCommand(sessionName: sessionName),
+                    command: SSHLaunchMode.shellCommand(workingDirectory: workingDirectory),
+                    wantReply: false
+                ),
+                promise: nil
+            )
+        case .tmux(let sessionName, let workingDirectory):
+            context.triggerUserOutboundEvent(
+                SSHChannelRequestEvent.ExecRequest(
+                    command: SSHLaunchMode.tmuxCommand(sessionName: sessionName, workingDirectory: workingDirectory),
                     wantReply: false
                 ),
                 promise: nil

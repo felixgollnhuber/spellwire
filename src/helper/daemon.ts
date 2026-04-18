@@ -1,6 +1,10 @@
 import net from "node:net";
 import { rmSync } from "node:fs";
 import type {
+    BranchInfo,
+    BranchListParams,
+    BranchSwitchParams,
+    BranchSwitchResult,
     CodexProject,
     CodexThreadDetail,
     CodexThreadSummary,
@@ -10,6 +14,8 @@ import type {
     HelperRequestEnvelope,
     HelperStatusSnapshot,
     HelperSuccessResponseEnvelope,
+    ModelOption,
+    TurnInputItem,
     ThreadsListParams,
     TurnInterruptRequest,
     TurnMutationResult,
@@ -20,8 +26,9 @@ import { createJSONLineReader, serializeJSONLine } from "../shared/json-lines.js
 import { runtimePaths, type RuntimePaths, spellwireVersion, ensureRuntimeDirectories } from "../shared/runtime-paths.js";
 import { AppServerClient } from "./app-server-client.js";
 import { DesktopBridge } from "./desktop-bridge.js";
+import { listLocalBranches, switchLocalBranch } from "./git-branches.js";
 import { JSONLLogger } from "./logger.js";
-import { detailFromThread, projectsFromThreads, threadToSummary } from "./mappers.js";
+import { detailFromThread, mapSandboxPolicy, projectsFromThreads, threadToSummary } from "./mappers.js";
 import { PreviewRegistry } from "./preview-registry.js";
 import { SessionRecoveryIndex } from "./session-recovery-index.js";
 import { patchDaemonState, readDaemonState } from "./state-store.js";
@@ -48,6 +55,11 @@ interface RawThread {
     createdAt: number;
     source: unknown;
     agentNickname: string | null;
+    gitInfo?: {
+        sha?: string | null;
+        branch?: string | null;
+        originUrl?: string | null;
+    } | null;
     turns: Array<{
         id: string;
         items: Array<{ id: string; type: string; [key: string]: unknown }>;
@@ -56,6 +68,38 @@ interface RawThread {
         completedAt: number | null;
     }>;
     [key: string]: unknown;
+}
+
+interface RawThreadResumeResponse {
+    thread: RawThread;
+    model: string;
+    modelProvider: string;
+    serviceTier: string | null;
+    cwd: string;
+    approvalPolicy: unknown;
+    sandbox: unknown;
+    reasoningEffort: string | null;
+}
+
+interface RawModelOption {
+    id: string;
+    model: string;
+    displayName: string;
+    description: string;
+    hidden: boolean;
+    supportedReasoningEfforts: Array<{
+        reasoningEffort: string;
+        description: string;
+    }>;
+    defaultReasoningEffort: string;
+    inputModalities: string[];
+    additionalSpeedTiers: string[];
+    isDefault: boolean;
+}
+
+interface RawModelListResponse {
+    data: RawModelOption[];
+    nextCursor: string | null;
 }
 
 export class SpellwireDaemon {
@@ -200,12 +244,18 @@ export class SpellwireDaemon {
                 return this.threadDetail(String((request.params as unknown as { threadID?: string; threadId?: string }).threadID ?? (request.params as unknown as { threadID?: string; threadId?: string }).threadId ?? ""));
             case "threads.read":
                 return this.threadDetail(String((request.params as unknown as { threadID?: string; threadId?: string }).threadID ?? (request.params as unknown as { threadID?: string; threadId?: string }).threadId ?? ""), false);
+            case "models.list":
+                return this.modelsList();
             case "turns.start":
                 return this.turnStart(request.params as unknown as TurnPromptParams);
             case "turns.steer":
                 return this.turnSteer(request.params as unknown as TurnSteerPromptParams);
             case "turns.interrupt":
                 return this.turnInterrupt(request.params as unknown as TurnInterruptRequest);
+            case "branches.list":
+                return this.branchesList(request.params as BranchListParams);
+            case "branches.switch":
+                return this.branchesSwitch(request.params as BranchSwitchParams);
             case "desktop.open":
                 return this.desktopOpen(request.params as unknown as DesktopOpenRequest);
             case "previews.list":
@@ -222,6 +272,7 @@ export class SpellwireDaemon {
             helperVersion: spellwireVersion(),
             daemonRunning: true,
             appServerRunning: snapshot.running,
+            attachmentsRootPath: this.paths.attachmentsRootPath,
             socketPath: this.paths.socketPath,
             logFilePath: this.paths.logFilePath,
             codexHome: snapshot.codexHome ?? state.codexHome,
@@ -257,11 +308,7 @@ export class SpellwireDaemon {
 
         const { activeThreads, archivedThreads } = await this.threadInventory();
         const archived = archivedThreads.some((thread) => thread.id === threadID);
-        if (resume) {
-            await this.appServer.request("thread/resume", {
-                threadId: threadID,
-            });
-        }
+        const runtime = await this.threadRuntime(threadID, resume);
         const response = await this.appServer.request<{ thread: RawThread }>("thread/read", {
             threadId: threadID,
             includeTurns: true,
@@ -288,6 +335,7 @@ export class SpellwireDaemon {
             archived,
             recovery,
             project,
+            runtime,
         );
     }
 
@@ -297,13 +345,12 @@ export class SpellwireDaemon {
         });
         const response = await this.appServer.request<{ turn: { id: string } }>("turn/start", {
             threadId: params.threadID,
-            input: [
-                {
-                    type: "text",
-                    text: params.prompt,
-                    text_elements: [],
-                },
-            ],
+            input: params.input.map((item) => this.appServerInput(item)),
+            cwd: params.cwd ?? undefined,
+            model: params.model ?? undefined,
+            effort: params.effort ?? undefined,
+            serviceTier: params.serviceTier ?? undefined,
+            sandboxPolicy: params.sandboxPolicy ?? undefined,
         });
         return {
             threadID: params.threadID,
@@ -345,6 +392,57 @@ export class SpellwireDaemon {
         return this.desktopBridge.openThread(params.threadID, detail.thread.cwd);
     }
 
+    private async modelsList(): Promise<ModelOption[]> {
+        const models: ModelOption[] = [];
+        let cursor: string | null = null;
+
+        do {
+            const page: RawModelListResponse = await this.appServer.request("model/list", {
+                cursor,
+                includeHidden: false,
+            });
+            models.push(
+                ...page.data.map((model: RawModelOption) => ({
+                    id: model.id,
+                    model: model.model,
+                    displayName: model.displayName,
+                    description: model.description,
+                    hidden: model.hidden,
+                    supportedReasoningEfforts: model.supportedReasoningEfforts,
+                    defaultReasoningEffort: model.defaultReasoningEffort,
+                    inputModalities: model.inputModalities,
+                    additionalSpeedTiers: model.additionalSpeedTiers,
+                    isDefault: model.isDefault,
+                })),
+            );
+            cursor = page.nextCursor;
+        } while (cursor);
+
+        return models;
+    }
+
+    private async branchesList(params: BranchListParams): Promise<BranchInfo[]> {
+        if (!params.cwd) {
+            throw new Error("cwd is required.");
+        }
+
+        return listLocalBranches(params.cwd);
+    }
+
+    private async branchesSwitch(params: BranchSwitchParams): Promise<BranchSwitchResult> {
+        if (!params.cwd) {
+            throw new Error("cwd is required.");
+        }
+        if (!params.name) {
+            throw new Error("name is required.");
+        }
+
+        return {
+            cwd: params.cwd,
+            currentBranch: await switchLocalBranch(params.cwd, params.name),
+        };
+    }
+
     private broadcast(event: HelperEventEnvelope): void {
         const payload = serializeJSONLine(event);
         for (const socket of this.sockets) {
@@ -379,6 +477,62 @@ export class SpellwireDaemon {
         } while (cursor);
 
         return threads;
+    }
+
+    private async threadRuntime(threadID: string, _resume: boolean): Promise<CodexThreadDetail["runtime"]> {
+        const response = await this.appServer.request<RawThreadResumeResponse>("thread/resume", {
+            threadId: threadID,
+        });
+
+        return {
+            cwd: response.cwd,
+            model: response.model,
+            modelProvider: response.modelProvider,
+            serviceTier: response.serviceTier,
+            reasoningEffort: response.reasoningEffort,
+            approvalPolicy: typeof response.approvalPolicy === "string" ? response.approvalPolicy : JSON.stringify(response.approvalPolicy),
+            sandbox: mapSandboxPolicy(response.sandbox),
+            git: response.thread.gitInfo
+                ? {
+                    sha: response.thread.gitInfo.sha ?? null,
+                    branch: response.thread.gitInfo.branch ?? null,
+                    originURL: response.thread.gitInfo.originUrl ?? null,
+                }
+                : null,
+        };
+    }
+
+    private appServerInput(item: TurnInputItem): Record<string, unknown> {
+        switch (item.type) {
+            case "text":
+                return {
+                    type: "text",
+                    text: item.text,
+                    text_elements: [],
+                };
+            case "localImage":
+                return {
+                    type: "localImage",
+                    path: item.path,
+                };
+            case "image":
+                return {
+                    type: "image",
+                    url: item.url,
+                };
+            case "mention":
+                return {
+                    type: "mention",
+                    name: item.name,
+                    path: item.path,
+                };
+            case "skill":
+                return {
+                    type: "skill",
+                    name: item.name,
+                    path: item.path,
+                };
+        }
     }
 }
 

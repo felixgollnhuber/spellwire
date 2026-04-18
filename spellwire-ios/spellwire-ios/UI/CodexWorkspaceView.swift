@@ -7,6 +7,7 @@ struct CodexWorkspaceView: View {
     let identity: SSHDeviceIdentity
     let trustStore: HostTrustStore
     let browserDefaultScheme: String
+    let projectPreviewPortStore: ProjectPreviewPortStore
     let fileSessionManager: FileSessionManager
     let workingCopyManager: WorkingCopyManager
     let conflictResolver: ConflictResolver
@@ -22,6 +23,7 @@ struct CodexWorkspaceView: View {
         identity: SSHDeviceIdentity,
         trustStore: HostTrustStore,
         browserDefaultScheme: String,
+        projectPreviewPortStore: ProjectPreviewPortStore,
         fileSessionManager: FileSessionManager,
         workingCopyManager: WorkingCopyManager,
         conflictResolver: ConflictResolver,
@@ -34,6 +36,7 @@ struct CodexWorkspaceView: View {
         self.identity = identity
         self.trustStore = trustStore
         self.browserDefaultScheme = browserDefaultScheme
+        self.projectPreviewPortStore = projectPreviewPortStore
         self.fileSessionManager = fileSessionManager
         self.workingCopyManager = workingCopyManager
         self.conflictResolver = conflictResolver
@@ -139,7 +142,19 @@ struct CodexWorkspaceView: View {
                         Section(project.title) {
                             ForEach(service.threadsForProject(projectID: project.id, matching: searchText)) { thread in
                                 NavigationLink {
-                                    CodexThreadView(service: service, thread: thread)
+                                    CodexThreadChatView(
+                                        service: service,
+                                        thread: thread,
+                                        host: host,
+                                        identity: identity,
+                                        trustStore: trustStore,
+                                        browserDefaultScheme: browserDefaultScheme,
+                                        projectPreviewPortStore: projectPreviewPortStore,
+                                        fileSessionManager: fileSessionManager,
+                                        workingCopyManager: workingCopyManager,
+                                        conflictResolver: conflictResolver,
+                                        previewStore: previewStore
+                                    )
                                 } label: {
                                     ThreadSummaryRow(thread: thread)
                                 }

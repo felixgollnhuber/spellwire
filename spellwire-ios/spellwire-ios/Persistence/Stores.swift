@@ -104,3 +104,42 @@ nonisolated struct BrowserSettingsStore {
         try store.save(settings)
     }
 }
+
+nonisolated struct ProjectPreviewPortStore {
+    private let store: JSONStore<[String: Int]>
+
+    init(appDirectories: AppDirectories) {
+        store = JSONStore(
+            url: appDirectories.applicationSupportDirectory.appending(path: "project-preview-ports.json"),
+            defaultValue: [:]
+        )
+    }
+
+    func load() throws -> [String: Int] {
+        try store.load()
+    }
+
+    func save(_ ports: [String: Int]) throws {
+        try store.save(ports)
+    }
+
+    func previewPort(hostID: HostRecord.ID, cwd: String) throws -> Int? {
+        try load()[key(hostID: hostID, cwd: cwd)]
+    }
+
+    func setPreviewPort(_ port: Int, hostID: HostRecord.ID, cwd: String) throws {
+        var ports = try load()
+        ports[key(hostID: hostID, cwd: cwd)] = port
+        try save(ports)
+    }
+
+    func removePreviewPort(hostID: HostRecord.ID, cwd: String) throws {
+        var ports = try load()
+        ports.removeValue(forKey: key(hostID: hostID, cwd: cwd))
+        try save(ports)
+    }
+
+    private func key(hostID: HostRecord.ID, cwd: String) -> String {
+        "\(hostID.uuidString)|\(cwd)"
+    }
+}
