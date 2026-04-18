@@ -1,11 +1,6 @@
 import SwiftUI
 import UIKit
 
-private enum WelcomeStep {
-    case welcome
-    case setup
-}
-
 private enum HostSetupField: Hashable {
     case host
     case port
@@ -16,7 +11,6 @@ struct WelcomeExperienceView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var step: WelcomeStep = .welcome
     @State private var draft = HostEditorDraft()
     @State private var connectionProbe = HostConnectionProbe()
     @State private var isFinishingSetup = false
@@ -25,25 +19,8 @@ struct WelcomeExperienceView: View {
     @FocusState private var focusedField: HostSetupField?
 
     var body: some View {
-        ZStack {
-            SpellwireWelcomeScaffold(isCompact: focusedField != nil || step == .setup) {
-                Group {
-                    switch step {
-                    case .welcome:
-                        welcomeContent
-                    case .setup:
-                        setupContent
-                    }
-                }
-            }
-            .animation(.spring(response: 0.52, dampingFraction: 0.88), value: step)
-            .animation(.easeInOut(duration: reduceMotion ? 0.12 : 0.24), value: focusedField != nil)
-
-            if isFinishingSetup {
-                WelcomeSuccessOverlay(hostname: draft.hostname.trimmingCharacters(in: .whitespacesAndNewlines))
-                    .transition(.scale(scale: 0.94).combined(with: .opacity))
-                    .zIndex(1)
-            }
+        NavigationStack {
+            welcomeScreen
         }
         .alert(
             "Trust Host Key",
@@ -79,14 +56,21 @@ struct WelcomeExperienceView: View {
         }
     }
 
+    private var welcomeScreen: some View {
+        SpellwireWelcomeScaffold(isCompact: false, pinsContentToBottom: true) {
+            welcomeContent
+        }
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
     private var welcomeContent: some View {
         VStack(alignment: .leading, spacing: 20) {
-            WelcomeConnectionCard()
+            WelcomeAppIcon()
                 .spellwireBlurRiseOnAppear()
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Spellwire keeps your Codex Mac one tap away.")
-                    .font(.spellwireDisplay(40))
+                    .font(.spellwireDisplay(35))
                     .fixedSize(horizontal: false, vertical: true)
                 Text("Pair your iPhone with a Mac over SSH, pin the host key, and keep the same local Codex workspace in reach.")
                     .font(.spellwireBody(17))
@@ -95,15 +79,12 @@ struct WelcomeExperienceView: View {
             }
             .spellwireBlurRiseOnAppear()
 
-            SpellwireActionButton(
+            SpellwireActionNavigationLink(
+                destination: setupScreen,
                 variant: .secondary,
                 size: .xl,
                 fullWidth: true
             ) {
-                withAnimation(.spring(response: 0.52, dampingFraction: 0.9)) {
-                    step = .setup
-                }
-            } label: {
                 HStack(spacing: 12) {
                     Text("Set Up Your Mac")
                     Image(systemName: "arrow.right")
@@ -114,25 +95,25 @@ struct WelcomeExperienceView: View {
         }
     }
 
+    private var setupScreen: some View {
+        ZStack {
+            SpellwireWelcomeScaffold(isCompact: focusedField != nil, pinsContentToBottom: false) {
+                setupContent
+            }
+
+            if isFinishingSetup {
+                WelcomeSuccessOverlay(hostname: draft.hostname.trimmingCharacters(in: .whitespacesAndNewlines))
+                    .transition(.scale(scale: 0.94).combined(with: .opacity))
+                    .zIndex(1)
+            }
+        }
+        .animation(.easeInOut(duration: reduceMotion ? 0.12 : 0.24), value: focusedField != nil)
+        .navigationTitle("Set Up Your Mac")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
     private var setupContent: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Button {
-                    focusedField = nil
-                    withAnimation(.spring(response: 0.46, dampingFraction: 0.9)) {
-                        step = .welcome
-                    }
-                } label: {
-                    Label("Back", systemImage: "chevron.left")
-                }
-                .buttonStyle(.glass)
-                .font(.spellwireBody(14, weight: .medium))
-
-                Spacer()
-
-                WelcomeBadge(title: "Auto-connect", symbol: "bolt.horizontal.fill")
-            }
-            .spellwireBlurRiseOnAppear()
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Connect your Mac")
@@ -205,15 +186,17 @@ struct WelcomeExperienceView: View {
                     .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
                 HStack(spacing: 12) {
-                    Button("Copy Key") {
+                    SpellwireActionButton(variant: .secondary, size: .md) {
                         UIPasteboard.general.string = appModel.publicKeyOpenSSH
+                    } label: {
+                        Label("Copy Key", systemImage: "doc.on.doc")
                     }
-                    .buttonStyle(.glass)
 
-                    Button("Share Key") {
+                    SpellwireActionButton(variant: .secondary, size: .md) {
                         showingShareSheet = true
+                    } label: {
+                        Label("Share Key", systemImage: "square.and.arrow.up")
                     }
-                    .buttonStyle(.glass)
                 }
 
                 if let errorMessage {
@@ -229,23 +212,19 @@ struct WelcomeExperienceView: View {
             }
             .spellwireBlurRiseOnAppear()
 
-            Button(action: connect) {
+            SpellwireActionButton(
+                variant: .primary,
+                size: .xl,
+                fullWidth: true,
+                isLoading: connectionProbe.state == .connecting || connectionProbe.state == .trustPrompt,
+                action: connect
+            ) {
                 HStack(spacing: 10) {
-                    if connectionProbe.state == .connecting || connectionProbe.state == .trustPrompt {
-                        ProgressView()
-                            .tint(.white)
-                    } else {
-                        Image(systemName: "point.3.connected.trianglepath.dotted")
-                    }
-
+                    Image(systemName: "point.3.connected.trianglepath.dotted")
                     Text(primaryButtonTitle)
                 }
-                .font(.spellwireBody(17, weight: .semibold))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
             }
-            .buttonStyle(.glassProminent)
-            .tint(SpellwirePalette.accent)
             .disabled(isPrimaryButtonDisabled)
             .spellwireBlurRiseOnAppear()
         }
@@ -348,12 +327,15 @@ struct WelcomeExperienceView: View {
 
 private struct SpellwireWelcomeScaffold<BottomContent: View>: View {
     let isCompact: Bool
+    let pinsContentToBottom: Bool
     @ViewBuilder let bottomContent: BottomContent
 
     var body: some View {
         GeometryReader { proxy in
             VStack(alignment: .leading, spacing: isCompact ? 18 : 24) {
-                Spacer(minLength: 0)
+                if pinsContentToBottom {
+                    Spacer(minLength: 0)
+                }
 
                 bottomContent
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -361,73 +343,23 @@ private struct SpellwireWelcomeScaffold<BottomContent: View>: View {
             .padding(.horizontal, 24)
             .padding(.top, max(24, proxy.safeAreaInsets.top + 12))
             .padding(.bottom, 28)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: pinsContentToBottom ? .bottom : .top
+            )
         }
         .spellwireCanvas()
     }
 }
 
-private struct WelcomeConnectionCard: View {
+private struct WelcomeAppIcon: View {
     var body: some View {
-        SpellwireGlassPanel {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .center, spacing: 16) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.96),
-                                        Color(uiColor: .tertiarySystemFill),
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .strokeBorder(Color.black.opacity(0.08), lineWidth: 1)
-                        Image(systemName: "bolt.horizontal.circle.fill")
-                            .font(.system(size: 30, weight: .semibold))
-                            .foregroundStyle(Color.black.opacity(0.82))
-                    }
-                    .frame(width: 72, height: 72)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Pinned Remote Workspace")
-                            .font(.spellwireBody(18, weight: .semibold))
-                        Text("Open your Mac from iPhone without leaving the local Codex loop.")
-                            .font(.spellwireBody(14))
-                            .foregroundStyle(SpellwirePalette.secondaryForeground)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-
-                HStack(spacing: 10) {
-                    WelcomeBadge(title: "Mac", symbol: "desktopcomputer")
-                    WelcomeBadge(title: "iPhone", symbol: "iphone")
-                }
-
-                HStack(spacing: 10) {
-                    WelcomeBadge(title: "Codex", symbol: "terminal.fill")
-                    WelcomeBadge(title: "Pinned", symbol: "checkmark.shield.fill")
-                }
-            }
-        }
-    }
-}
-
-private struct WelcomeBadge: View {
-    let title: String
-    let symbol: String
-
-    var body: some View {
-        Label(title, systemImage: symbol)
-            .font(.spellwireBody(13, weight: .semibold))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .foregroundStyle(.white)
-            .background(Color.white.opacity(0.08), in: Capsule(style: .continuous))
-            .glassEffect(.regular, in: .capsule)
+        Image("icon_dark_nobg")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 84, height: 84)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 }
 

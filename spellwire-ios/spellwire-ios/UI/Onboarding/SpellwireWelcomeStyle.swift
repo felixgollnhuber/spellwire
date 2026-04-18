@@ -239,6 +239,52 @@ struct SpellwireActionButton<Label: View>: View {
     }
 }
 
+struct SpellwireActionNavigationLink<Destination: View, Label: View>: View {
+    private let destination: Destination
+    private let variant: SpellwireActionButtonVariant
+    private let size: SpellwireActionButtonSize
+    private let tint: Color
+    private let fullWidth: Bool
+    private let label: () -> Label
+
+    init(
+        destination: Destination,
+        variant: SpellwireActionButtonVariant = .primary,
+        size: SpellwireActionButtonSize = .md,
+        tint: Color = SpellwirePalette.accent,
+        fullWidth: Bool? = nil,
+        @ViewBuilder label: @escaping () -> Label
+    ) {
+        self.destination = destination
+        self.variant = variant
+        self.size = size
+        self.tint = tint
+        self.fullWidth = fullWidth ?? size.isFullWidthByDefault
+        self.label = label
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: size.height / 2, style: .continuous)
+
+        NavigationLink(destination: destination) {
+            label()
+                .font(size.font)
+                .padding(.horizontal, size.horizontalPadding)
+                .frame(height: size.height)
+                .frame(maxWidth: fullWidth ? .infinity : nil)
+                .contentShape(shape)
+        }
+        .buttonStyle(SpellwireActionButtonPressStyle())
+        .modifier(
+            SpellwireActionButtonChrome(
+                variant: variant,
+                height: size.height,
+                tint: tint
+            )
+        )
+    }
+}
+
 private struct SpellwireActionButtonPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         if #available(iOS 26.0, *) {
