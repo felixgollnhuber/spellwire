@@ -5,6 +5,8 @@ import Observation
 @Observable
 final class EditorViewModel {
     let title: String
+    let syntaxLanguage: EditorSyntaxLanguage?
+    let wrapsLines: Bool
 
     var text = ""
     var session: OpenDocumentSession?
@@ -14,7 +16,7 @@ final class EditorViewModel {
     var hasConflict = false
     var shareURL: URL?
 
-    private let browser: BrowserViewModel
+    let browser: BrowserViewModel
     private let remotePath: String
     private var persistTask: Task<Void, Never>?
 
@@ -22,6 +24,8 @@ final class EditorViewModel {
         self.browser = browser
         self.remotePath = remotePath
         self.title = title
+        self.syntaxLanguage = FileClassifier.syntaxLanguage(for: remotePath)
+        self.wrapsLines = FileClassifier.prefersWrappedLines(for: remotePath)
     }
 
     func loadIfNeeded() async {

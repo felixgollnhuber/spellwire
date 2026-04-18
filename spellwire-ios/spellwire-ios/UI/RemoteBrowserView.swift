@@ -15,7 +15,8 @@ struct RemoteBrowserView: View {
                 RemoteFolderView(
                     viewModel: viewModel,
                     path: rootPath,
-                    title: viewModel.host.nickname
+                    title: viewModel.host.nickname,
+                    searchRootPath: rootPath
                 )
             } else if let errorMessage {
                 ContentUnavailableView(
@@ -24,7 +25,7 @@ struct RemoteBrowserView: View {
                     description: Text(errorMessage)
                 )
             } else {
-                ProgressView("Connecting...")
+                RemoteFilesFolderSkeleton()
             }
         }
         .navigationTitle("Remote Files")
@@ -57,15 +58,17 @@ struct RemoteBrowserView: View {
     }
 }
 
-private struct RemoteFolderView: View {
+struct RemoteFolderView: View {
     let viewModel: BrowserViewModel
     let path: String
     let title: String
+    let searchRootPath: String
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var items: [RemoteItem] = []
     @State private var searchText = ""
+    @State private var submittedSearch: RemoteFilesSearchRequest?
     @State private var filter = BrowserFilter.all
     @State private var displayMode = BrowserDisplayMode.list
     @State private var sortKey = BrowserSortKey.name
@@ -82,8 +85,7 @@ private struct RemoteFolderView: View {
     var body: some View {
         Group {
             if isLoading && items.isEmpty {
-                ProgressView("Loading...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                RemoteFilesFolderSkeleton()
             } else if let errorMessage, items.isEmpty {
                 ContentUnavailableView(
                     "Could Not Load Folder",
@@ -98,9 +100,12 @@ private struct RemoteFolderView: View {
         }
         .navigationTitle(isSelecting ? selectionTitle : title)
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search \(title)")
         .safeAreaInset(edge: .top, spacing: 0) {
-            controlsHeader
+            if isLoading && items.isEmpty {
+                EmptyView()
+            } else {
+                controlsHeader
+            }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if isSelecting {
@@ -174,6 +179,13 @@ private struct RemoteFolderView: View {
         .task(id: path) {
             await load()
         }
+        .navigationDestination(item: $submittedSearch) { request in
+            RemoteFilesSearchResultsView(
+                browser: viewModel,
+                searchRootPath: searchRootPath,
+                initialQuery: request.query
+            )
+        }
         .refreshable {
             await load()
         }
@@ -241,6 +253,9 @@ private struct RemoteFolderView: View {
 
     private var controlsHeader: some View {
         VStack(alignment: .leading, spacing: 10) {
+            RemoteFilesSearchField(text: $searchText, prompt: "Search all files", onSubmit: submitSearch)
+                .padding(.horizontal, 16)
+
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 14) {
                     ForEach(BrowserFilter.allCases) { browseFilter in
@@ -331,7 +346,7 @@ private struct RemoteFolderView: View {
         if items.isEmpty {
             return "Folder Is Empty"
         }
-        return searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Nothing Matches This Filter" : "No Search Results"
+        return "Nothing Matches This Filter"
     }
 
     private var emptySystemImage: String {
@@ -345,10 +360,7 @@ private struct RemoteFolderView: View {
         if items.isEmpty {
             return "Create a folder or pull to refresh this remote location."
         }
-        if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Try a different filter or sort option."
-        }
-        return "Try a different search term or clear the active filters."
+        return "Try a different filter or sort option."
     }
 
     private var gridColumns: [GridItem] {
@@ -359,7 +371,6 @@ private struct RemoteFolderView: View {
     private var visibleItems: [RemoteItem] {
         items
             .filter { filter.includes($0) }
-            .filter(matchesSearch(_:))
             .sorted(by: compareItems(_:_:))
     }
 
@@ -383,7 +394,7 @@ private struct RemoteFolderView: View {
     private func destination(for item: RemoteItem, style: BrowserItemStyle) -> some View {
         if item.metadata.kind == .directory {
             NavigationLink {
-                RemoteFolderView(viewModel: viewModel, path: item.path, title: item.name)
+                RemoteFolderView(viewModel: viewModel, path: item.path, title: item.name, searchRootPath: searchRootPath)
             } label: {
                 itemContent(for: item, style: style)
             }
@@ -391,7 +402,8 @@ private struct RemoteFolderView: View {
         } else if FileClassifier.editorKind(for: item.path) != nil {
             NavigationLink {
                 RemoteEditorView(
-                    viewModel: EditorViewModel(browser: viewModel, remotePath: item.path, title: item.name)
+                    viewModel: EditorViewModel(browser: viewModel, remotePath: item.path, title: item.name),
+                    searchRootPath: searchRootPath
                 )
             } label: {
                 itemContent(for: item, style: style)
@@ -399,14 +411,14 @@ private struct RemoteFolderView: View {
             .buttonStyle(.plain)
         } else if FileClassifier.isPreviewable(path: item.path) {
             NavigationLink {
-                RemotePreviewView(browser: viewModel, item: item)
+                RemotePreviewView(browser: viewModel, item: item, searchRootPath: searchRootPath)
             } label: {
                 itemContent(for: item, style: style)
             }
             .buttonStyle(.plain)
         } else {
             NavigationLink {
-                RemoteFileDetailView(browser: viewModel, item: item)
+                RemoteFileDetailView(browser: viewModel, item: item, searchRootPath: searchRootPath)
             } label: {
                 itemContent(for: item, style: style)
             }
@@ -487,20 +499,10 @@ private struct RemoteFolderView: View {
         }
     }
 
-    private func matchesSearch(_ item: RemoteItem) -> Bool {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return true }
-
-        let values = [
-            item.name,
-            item.path,
-            FileClassifier.kindDescription(for: item),
-            URL(filePath: item.path).pathExtension
-        ]
-
-        return values.contains { value in
-            value.localizedCaseInsensitiveContains(query)
-        }
+    private func submitSearch() {
+        let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return }
+        submittedSearch = RemoteFilesSearchRequest(query: trimmedQuery)
     }
 
     private func compareItems(_ lhs: RemoteItem, _ rhs: RemoteItem) -> Bool {
@@ -556,7 +558,7 @@ private struct RemoteFolderView: View {
     }
 }
 
-private struct RemoteListItemRow: View {
+struct RemoteListItemRow: View {
     let item: RemoteItem
     let isSelecting: Bool
     let isSelected: Bool

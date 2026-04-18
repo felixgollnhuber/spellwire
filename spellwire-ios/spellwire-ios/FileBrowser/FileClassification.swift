@@ -59,6 +59,23 @@ enum RemoteBrowserItemCategory: String, CaseIterable, Sendable {
     }
 }
 
+enum EditorSyntaxLanguage: String, Sendable {
+    case bash
+    case css
+    case html
+    case javaScript
+    case jsx
+    case json
+    case markdown
+    case python
+    case sql
+    case swift
+    case toml
+    case tsx
+    case typeScript
+    case yaml
+}
+
 enum FileClassifier {
     static func utType(for path: String) -> UTType? {
         let fileExtension = URL(filePath: path).pathExtension
@@ -80,8 +97,52 @@ enum FileClassifier {
         case "yaml", "yml":
             return .yaml
         default:
+            if editableCodeExtensions.contains(fileExtension) || editablePlainTextExtensions.contains(fileExtension) {
+                return .plainText
+            }
             return nil
         }
+    }
+
+    static func syntaxLanguage(for path: String) -> EditorSyntaxLanguage? {
+        let fileExtension = URL(filePath: path).pathExtension.lowercased()
+        switch fileExtension {
+        case "bash", "sh", "zsh":
+            return .bash
+        case "css":
+            return .css
+        case "htm", "html":
+            return .html
+        case "js", "cjs", "mjs":
+            return .javaScript
+        case "jsx":
+            return .jsx
+        case "json":
+            return .json
+        case "md", "markdown":
+            return .markdown
+        case "py":
+            return .python
+        case "sql":
+            return .sql
+        case "swift":
+            return .swift
+        case "toml":
+            return .toml
+        case "ts":
+            return .typeScript
+        case "tsx":
+            return .tsx
+        case "yaml", "yml":
+            return .yaml
+        default:
+            return nil
+        }
+    }
+
+    static func prefersWrappedLines(for path: String) -> Bool {
+        let fileExtension = URL(filePath: path).pathExtension.lowercased()
+        return wrappedTextExtensions.contains(fileExtension)
     }
 
     static func isPreviewable(path: String) -> Bool {
@@ -158,5 +219,15 @@ enum FileClassifier {
 
     private static let documentExtensions: Set<String> = [
         "csv", "doc", "docx", "log", "markdown", "md", "pages", "rtf", "text", "tsv", "txt"
+    ]
+
+    private static let editableCodeExtensions: Set<String> = codeExtensions.union(["cjs", "jsx", "mjs"])
+
+    private static let editablePlainTextExtensions: Set<String> = [
+        "csv", "log", "text", "tsv", "txt"
+    ]
+
+    private static let wrappedTextExtensions: Set<String> = [
+        "csv", "log", "markdown", "md", "text", "tsv", "txt"
     ]
 }

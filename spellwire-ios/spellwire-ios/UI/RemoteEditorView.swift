@@ -2,30 +2,56 @@ import SwiftUI
 
 struct RemoteEditorView: View {
     @State private var viewModel: EditorViewModel
-    @State private var isSharePresented = false
+    let searchRootPath: String
 
-    init(viewModel: EditorViewModel) {
+    @State private var isSharePresented = false
+    @State private var searchText = ""
+    @State private var submittedSearch: RemoteFilesSearchRequest?
+
+    init(viewModel: EditorViewModel, searchRootPath: String) {
         _viewModel = State(initialValue: viewModel)
+        self.searchRootPath = searchRootPath
     }
 
     var body: some View {
         Group {
             if viewModel.isLoading {
-                ProgressView("Opening…")
+                RemoteEditorSkeleton()
             } else {
-                TextEditor(
+                RunestoneEditorView(
                     text: Binding(
                         get: { viewModel.text },
                         set: { viewModel.updateText($0) }
-                    )
+                    ),
+                    language: viewModel.syntaxLanguage,
+                    wrapsLines: viewModel.wrapsLines
                 )
-                .font(.system(.body, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .background(Color(uiColor: .secondarySystemBackground))
             }
         }
         .navigationTitle(viewModel.title)
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if viewModel.isLoading {
+                EmptyView()
+            } else {
+                VStack {
+                    RemoteFilesSearchField(text: $searchText, prompt: "Search all files", onSubmit: submitSearch)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                }
+                .background(.bar)
+                .overlay(alignment: .bottom) {
+                    Divider()
+                }
+            }
+        }
+        .navigationDestination(item: $submittedSearch) { request in
+            RemoteFilesSearchResultsView(
+                browser: viewModel.browser,
+                searchRootPath: searchRootPath,
+                initialQuery: request.query
+            )
+        }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button("Reload") {
@@ -89,5 +115,11 @@ struct RemoteEditorView: View {
                 ActivityView(activityItems: [shareURL])
             }
         }
+    }
+
+    private func submitSearch() {
+        let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return }
+        submittedSearch = RemoteFilesSearchRequest(query: trimmedQuery)
     }
 }

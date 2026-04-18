@@ -3,6 +3,7 @@ import SwiftUI
 struct HostWorkspaceView: View {
     @Environment(AppModel.self) private var appModel
     let host: HostRecord
+    let onEditHost: () -> Void
     let onDeleteHost: () -> Void
     let onResetEverything: () -> Void
 
@@ -55,7 +56,8 @@ struct HostWorkspaceView: View {
                         host: host,
                         password: appModel.password(for: host.id),
                         trustStore: appModel.trustStore,
-                        defaultScheme: (try? appModel.browserSettingsStore.load().defaultScheme) ?? BrowserSettings.default.defaultScheme
+                        defaultScheme: (try? appModel.browserSettingsStore.load().defaultScheme) ?? BrowserSettings.default.defaultScheme,
+                        onEditHost: onEditHost
                     )
                 } label: {
                     workspaceRow(
@@ -85,6 +87,13 @@ struct HostWorkspaceView: View {
             }
         }
         .navigationTitle(host.nickname)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: onEditHost) {
+                    Label("Edit Host", systemImage: "slider.horizontal.3")
+                }
+            }
+        }
     }
 
     private func workspaceRow(title: String, systemImage: String, description: String) -> some View {

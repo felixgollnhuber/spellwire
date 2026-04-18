@@ -119,6 +119,45 @@ final class BrowserViewModel {
         }
     }
 
+    func search(query: String, from rootPath: String, maxResults: Int = 200) async throws -> [RemoteItem] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return [] }
+
+        let resolvedRoot = try await fileSystem.canonicalize(path: rootPath)
+        var queue = [resolvedRoot]
+        var visited = Set<String>()
+        var matches: [RemoteItem] = []
+
+        while !queue.isEmpty, matches.count < maxResults {
+            let currentPath = queue.removeFirst()
+            guard visited.insert(currentPath).inserted else { continue }
+
+            let items: [RemoteItem]
+            do {
+                items = try await fileSystem.list(path: currentPath)
+            } catch {
+                continue
+            }
+
+            for item in items {
+                if item.metadata.kind == .directory {
+                    queue.append(item.path)
+                }
+
+                if matchesSearchQuery(trimmedQuery, item: item) {
+                    matches.append(item)
+                    if matches.count >= maxResults {
+                        break
+                    }
+                }
+            }
+        }
+
+        return matches.sorted { lhs, rhs in
+            lhs.path.localizedStandardCompare(rhs.path) == .orderedAscending
+        }
+    }
+
     func openTextDocument(path: String) async throws -> OpenedTextDocument {
         let resolvedPath = try await fileSystem.canonicalize(path: path)
         guard let documentKind = FileClassifier.editorKind(for: resolvedPath) else {
@@ -181,6 +220,19 @@ final class BrowserViewModel {
 
     func fileMetadata(path: String) async throws -> RemoteMetadata {
         try await fileSystem.stat(path: path)
+    }
+
+    private func matchesSearchQuery(_ query: String, item: RemoteItem) -> Bool {
+        let values = [
+            item.name,
+            item.path,
+            FileClassifier.kindDescription(for: item),
+            URL(filePath: item.path).pathExtension
+        ]
+
+        return values.contains { value in
+            value.localizedCaseInsensitiveContains(query)
+        }
     }
 }
 

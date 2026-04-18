@@ -27,9 +27,6 @@ struct WelcomeExperienceView: View {
     var body: some View {
         ZStack {
             SpellwireWelcomeScaffold(isCompact: focusedField != nil || step == .setup) {
-                SpellwireHeroView(compact: focusedField != nil || step == .setup)
-                    .spellwireBlurRiseOnAppear()
-            } bottomContent: {
                 Group {
                     switch step {
                     case .welcome:
@@ -81,8 +78,10 @@ struct WelcomeExperienceView: View {
 
     private var welcomeContent: some View {
         VStack(alignment: .leading, spacing: 20) {
+            WelcomeConnectionCard()
+                .spellwireBlurRiseOnAppear()
+
             VStack(alignment: .leading, spacing: 10) {
-                WelcomeBadge(title: "SSH-only", symbol: "point.3.connected.trianglepath.dotted")
                 Text("Spellwire keeps your Codex Mac one tap away.")
                     .font(.spellwireDisplay(40))
                     .fixedSize(horizontal: false, vertical: true)
@@ -93,21 +92,21 @@ struct WelcomeExperienceView: View {
             }
             .spellwireBlurRiseOnAppear()
 
-            Button {
+            SpellwireActionButton(
+                variant: .secondary,
+                size: .xl,
+                fullWidth: true
+            ) {
                 withAnimation(.spring(response: 0.52, dampingFraction: 0.9)) {
                     step = .setup
                 }
             } label: {
-                HStack {
+                HStack(spacing: 12) {
                     Text("Set Up Your Mac")
                     Image(systemName: "arrow.right")
                 }
-                .font(.spellwireBody(17, weight: .semibold))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
             }
-            .buttonStyle(.glassProminent)
-            .tint(SpellwirePalette.accent)
             .spellwireBlurRiseOnAppear()
         }
     }
@@ -336,25 +335,20 @@ struct WelcomeExperienceView: View {
     }
 }
 
-private struct SpellwireWelcomeScaffold<Hero: View, BottomContent: View>: View {
+private struct SpellwireWelcomeScaffold<BottomContent: View>: View {
     let isCompact: Bool
-    @ViewBuilder let hero: Hero
     @ViewBuilder let bottomContent: BottomContent
 
     var body: some View {
         GeometryReader { proxy in
-            VStack(alignment: .leading, spacing: isCompact ? 18 : 28) {
+            VStack(alignment: .leading, spacing: isCompact ? 18 : 24) {
                 Spacer(minLength: 0)
-
-                hero
-                    .frame(maxWidth: .infinity)
-                    .frame(height: isCompact ? min(proxy.size.height * 0.28, 250) : min(proxy.size.height * 0.42, 360))
 
                 bottomContent
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 24)
-            .padding(.top, 24)
+            .padding(.top, max(24, proxy.safeAreaInsets.top + 12))
             .padding(.bottom, 28)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
@@ -362,103 +356,52 @@ private struct SpellwireWelcomeScaffold<Hero: View, BottomContent: View>: View {
     }
 }
 
-private struct SpellwireHeroView: View {
-    let compact: Bool
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var floatPrimary = false
-    @State private var floatSecondary = false
-    @Namespace private var glassNamespace
-
+private struct WelcomeConnectionCard: View {
     var body: some View {
-        GlassEffectContainer(spacing: 18) {
-            ZStack {
-                Circle()
-                    .fill(SpellwirePalette.accent.opacity(0.16))
-                    .frame(width: compact ? 190 : 240, height: compact ? 190 : 240)
-                    .blur(radius: 24)
-                    .offset(y: compact ? 0 : -8)
+        SpellwireGlassPanel {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .center, spacing: 16) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(0.96),
+                                        Color(uiColor: .tertiarySystemFill),
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .strokeBorder(Color.black.opacity(0.08), lineWidth: 1)
+                        Image(systemName: "bolt.horizontal.circle.fill")
+                            .font(.system(size: 30, weight: .semibold))
+                            .foregroundStyle(Color.black.opacity(0.82))
+                    }
+                    .frame(width: 72, height: 72)
 
-                RoundedRectangle(cornerRadius: 42, style: .continuous)
-                    .fill(.white.opacity(0.10))
-                    .frame(width: compact ? 260 : 300, height: compact ? 170 : 220)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 42))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Pinned Remote Workspace")
+                            .font(.spellwireBody(18, weight: .semibold))
+                        Text("Open your Mac from iPhone without leaving the local Codex loop.")
+                            .font(.spellwireBody(14))
+                            .foregroundStyle(SpellwirePalette.secondaryForeground)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
 
-                connectionBridge
+                HStack(spacing: 10) {
+                    WelcomeBadge(title: "Mac", symbol: "desktopcomputer")
+                    WelcomeBadge(title: "iPhone", symbol: "iphone")
+                }
 
-                floatingNode(symbol: "desktopcomputer", title: "Mac")
-                    .offset(x: compact ? -70 : -86, y: compact ? -12 : -20)
-                    .offset(y: floatPrimary ? -6 : 8)
-
-                floatingNode(symbol: "iphone", title: "iPhone")
-                    .offset(x: compact ? 70 : 86, y: compact ? 16 : 26)
-                    .offset(y: floatPrimary ? 8 : -6)
-
-                statusChip(symbol: "terminal.fill", title: "Codex")
-                    .offset(x: compact ? -86 : -112, y: compact ? 62 : 86)
-                    .offset(x: floatSecondary ? -5 : 7, y: floatSecondary ? -4 : 6)
-
-                statusChip(symbol: "checkmark.shield.fill", title: "Pinned")
-                    .offset(x: compact ? 82 : 110, y: compact ? -62 : -82)
-                    .offset(x: floatSecondary ? 6 : -5, y: floatSecondary ? 6 : -4)
+                HStack(spacing: 10) {
+                    WelcomeBadge(title: "Codex", symbol: "terminal.fill")
+                    WelcomeBadge(title: "Pinned", symbol: "checkmark.shield.fill")
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true)) {
-                floatPrimary.toggle()
-            }
-            withAnimation(.easeInOut(duration: 3.6).repeatForever(autoreverses: true)) {
-                floatSecondary.toggle()
-            }
-        }
-    }
-
-    private var connectionBridge: some View {
-        ZStack {
-            Capsule(style: .continuous)
-                .fill(SpellwirePalette.accent.opacity(0.16))
-                .frame(width: compact ? 88 : 120, height: 12)
-                .blur(radius: 10)
-
-            Capsule(style: .continuous)
-                .stroke(style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [8, 7]))
-                .foregroundStyle(SpellwirePalette.accentSoft)
-                .frame(width: compact ? 92 : 126, height: 18)
-                .rotationEffect(.degrees(floatPrimary ? 4 : -4))
-
-            Image(systemName: "bolt.horizontal.fill")
-                .font(.system(size: compact ? 18 : 22, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .glassEffect(.regular.tint(SpellwirePalette.accent).interactive(), in: .capsule)
-                .glassEffectID("spellwire-bolt", in: glassNamespace)
-        }
-    }
-
-    private func floatingNode(symbol: String, title: String) -> some View {
-        VStack(spacing: 10) {
-            Image(systemName: symbol)
-                .font(.system(size: compact ? 24 : 28, weight: .semibold))
-            Text(title)
-                .font(.spellwireBody(compact ? 12 : 13, weight: .semibold))
-        }
-        .foregroundStyle(.white)
-        .frame(width: compact ? 90 : 108, height: compact ? 90 : 108)
-        .background(Color.white.opacity(0.08), in: Circle())
-        .glassEffect(.regular.interactive(), in: .circle)
-    }
-
-    private func statusChip(symbol: String, title: String) -> some View {
-        Label(title, systemImage: symbol)
-            .font(.spellwireBody(compact ? 12 : 13, weight: .medium))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(Color.white.opacity(0.08), in: Capsule(style: .continuous))
-            .glassEffect(.regular, in: .capsule)
     }
 }
 

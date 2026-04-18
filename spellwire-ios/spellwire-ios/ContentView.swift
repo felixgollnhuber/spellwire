@@ -78,6 +78,8 @@ private struct WorkspaceShellView: View {
             if let selectedHost = appModel.selectedHost {
                 NavigationStack {
                     HostWorkspaceView(host: selectedHost) {
+                        hostEditor = .edit(selectedHost)
+                    } onDeleteHost: {
                         hostPendingDeletion = selectedHost
                     } onResetEverything: {
                         showingResetConfirmation = true

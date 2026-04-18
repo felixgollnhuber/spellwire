@@ -10,6 +10,21 @@
 		EBAA01012F938000000231ED /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02012F938000000231ED /* NIOCore */; };
 		EBAA01022F938000000231ED /* NIOPosix in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02022F938000000231ED /* NIOPosix */; };
 		EBAA01032F938000000231ED /* NIOSSH in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02032F938000000231ED /* NIOSSH */; };
+		EBAA01042F938000000231ED /* Shimmer in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02042F938000000231ED /* Shimmer */; };
+		EBAA01052F938001000231ED /* Runestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02052F938001000231ED /* Runestone */; };
+		EBAA01062F938001000231ED /* TreeSitterBashRunestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02062F938001000231ED /* TreeSitterBashRunestone */; };
+		EBAA01072F938001000231ED /* TreeSitterCSSRunestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02072F938001000231ED /* TreeSitterCSSRunestone */; };
+		EBAA01082F938001000231ED /* TreeSitterHTMLRunestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02082F938001000231ED /* TreeSitterHTMLRunestone */; };
+		EBAA01092F938001000231ED /* TreeSitterJavaScriptRunestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02092F938001000231ED /* TreeSitterJavaScriptRunestone */; };
+		EBAA010A2F938001000231ED /* TreeSitterJSONRunestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA020A2F938001000231ED /* TreeSitterJSONRunestone */; };
+		EBAA010B2F938001000231ED /* TreeSitterMarkdownRunestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA020B2F938001000231ED /* TreeSitterMarkdownRunestone */; };
+		EBAA010C2F938001000231ED /* TreeSitterPythonRunestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA020C2F938001000231ED /* TreeSitterPythonRunestone */; };
+		EBAA010D2F938001000231ED /* TreeSitterSQLRunestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA020D2F938001000231ED /* TreeSitterSQLRunestone */; };
+		EBAA010E2F938001000231ED /* TreeSitterSwiftRunestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA020E2F938001000231ED /* TreeSitterSwiftRunestone */; };
+		EBAA010F2F938001000231ED /* TreeSitterTOMLRunestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA020F2F938001000231ED /* TreeSitterTOMLRunestone */; };
+		EBAA01102F938001000231ED /* TreeSitterTSXRunestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02102F938001000231ED /* TreeSitterTSXRunestone */; };
+		EBAA01112F938001000231ED /* TreeSitterTypeScriptRunestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02112F938001000231ED /* TreeSitterTypeScriptRunestone */; };
+		EBAA01122F938001000231ED /* TreeSitterYAMLRunestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02122F938001000231ED /* TreeSitterYAMLRunestone */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,6 +62,21 @@
 				EBAA01012F938000000231ED /* NIOCore in Frameworks */,
 				EBAA01022F938000000231ED /* NIOPosix in Frameworks */,
 				EBAA01032F938000000231ED /* NIOSSH in Frameworks */,
+				EBAA01042F938000000231ED /* Shimmer in Frameworks */,
+				EBAA01052F938001000231ED /* Runestone in Frameworks */,
+				EBAA01062F938001000231ED /* TreeSitterBashRunestone in Frameworks */,
+				EBAA01072F938001000231ED /* TreeSitterCSSRunestone in Frameworks */,
+				EBAA01082F938001000231ED /* TreeSitterHTMLRunestone in Frameworks */,
+				EBAA01092F938001000231ED /* TreeSitterJavaScriptRunestone in Frameworks */,
+				EBAA010A2F938001000231ED /* TreeSitterJSONRunestone in Frameworks */,
+				EBAA010B2F938001000231ED /* TreeSitterMarkdownRunestone in Frameworks */,
+				EBAA010C2F938001000231ED /* TreeSitterPythonRunestone in Frameworks */,
+				EBAA010D2F938001000231ED /* TreeSitterSQLRunestone in Frameworks */,
+				EBAA010E2F938001000231ED /* TreeSitterSwiftRunestone in Frameworks */,
+				EBAA010F2F938001000231ED /* TreeSitterTOMLRunestone in Frameworks */,
+				EBAA01102F938001000231ED /* TreeSitterTSXRunestone in Frameworks */,
+				EBAA01112F938001000231ED /* TreeSitterTypeScriptRunestone in Frameworks */,
+				EBAA01122F938001000231ED /* TreeSitterYAMLRunestone in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -103,6 +133,21 @@
 				EBAA02012F938000000231ED /* NIOCore */,
 				EBAA02022F938000000231ED /* NIOPosix */,
 				EBAA02032F938000000231ED /* NIOSSH */,
+				EBAA02042F938000000231ED /* Shimmer */,
+				EBAA02052F938001000231ED /* Runestone */,
+				EBAA02062F938001000231ED /* TreeSitterBashRunestone */,
+				EBAA02072F938001000231ED /* TreeSitterCSSRunestone */,
+				EBAA02082F938001000231ED /* TreeSitterHTMLRunestone */,
+				EBAA02092F938001000231ED /* TreeSitterJavaScriptRunestone */,
+				EBAA020A2F938001000231ED /* TreeSitterJSONRunestone */,
+				EBAA020B2F938001000231ED /* TreeSitterMarkdownRunestone */,
+				EBAA020C2F938001000231ED /* TreeSitterPythonRunestone */,
+				EBAA020D2F938001000231ED /* TreeSitterSQLRunestone */,
+				EBAA020E2F938001000231ED /* TreeSitterSwiftRunestone */,
+				EBAA020F2F938001000231ED /* TreeSitterTOMLRunestone */,
+				EBAA02102F938001000231ED /* TreeSitterTSXRunestone */,
+				EBAA02112F938001000231ED /* TreeSitterTypeScriptRunestone */,
+				EBAA02122F938001000231ED /* TreeSitterYAMLRunestone */,
 			);
 			productName = "spellwire-ios";
 			productReference = EBFFC3A32F9379D0000231ED /* spellwire-ios.app */;
@@ -135,6 +180,9 @@
 			packageReferences = (
 				EBAA03012F938000000231ED /* XCRemoteSwiftPackageReference "swift-nio" */,
 				EBAA03022F938000000231ED /* XCRemoteSwiftPackageReference "swift-nio-ssh" */,
+				EBAA03032F938000000231ED /* XCRemoteSwiftPackageReference "SwiftUI-Shimmer" */,
+				EBAA03042F938001000231ED /* XCRemoteSwiftPackageReference "Runestone" */,
+				EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = EBFFC3A42F9379D0000231ED /* Products */;
@@ -451,6 +499,30 @@
 				version = 0.9.1;
 			};
 		};
+		EBAA03032F938000000231ED /* XCRemoteSwiftPackageReference "SwiftUI-Shimmer" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/markiv/SwiftUI-Shimmer";
+			requirement = {
+				kind = exactVersion;
+				version = 1.5.1;
+			};
+		};
+		EBAA03042F938001000231ED /* XCRemoteSwiftPackageReference "Runestone" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/simonbs/Runestone.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.5.2;
+			};
+		};
+		EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/simonbs/TreeSitterLanguages.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.1.10;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -468,6 +540,81 @@
 			isa = XCSwiftPackageProductDependency;
 			package = EBAA03022F938000000231ED /* XCRemoteSwiftPackageReference "swift-nio-ssh" */;
 			productName = NIOSSH;
+		};
+		EBAA02042F938000000231ED /* Shimmer */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03032F938000000231ED /* XCRemoteSwiftPackageReference "SwiftUI-Shimmer" */;
+			productName = Shimmer;
+		};
+		EBAA02052F938001000231ED /* Runestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03042F938001000231ED /* XCRemoteSwiftPackageReference "Runestone" */;
+			productName = Runestone;
+		};
+		EBAA02062F938001000231ED /* TreeSitterBashRunestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */;
+			productName = TreeSitterBashRunestone;
+		};
+		EBAA02072F938001000231ED /* TreeSitterCSSRunestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */;
+			productName = TreeSitterCSSRunestone;
+		};
+		EBAA02082F938001000231ED /* TreeSitterHTMLRunestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */;
+			productName = TreeSitterHTMLRunestone;
+		};
+		EBAA02092F938001000231ED /* TreeSitterJavaScriptRunestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */;
+			productName = TreeSitterJavaScriptRunestone;
+		};
+		EBAA020A2F938001000231ED /* TreeSitterJSONRunestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */;
+			productName = TreeSitterJSONRunestone;
+		};
+		EBAA020B2F938001000231ED /* TreeSitterMarkdownRunestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */;
+			productName = TreeSitterMarkdownRunestone;
+		};
+		EBAA020C2F938001000231ED /* TreeSitterPythonRunestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */;
+			productName = TreeSitterPythonRunestone;
+		};
+		EBAA020D2F938001000231ED /* TreeSitterSQLRunestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */;
+			productName = TreeSitterSQLRunestone;
+		};
+		EBAA020E2F938001000231ED /* TreeSitterSwiftRunestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */;
+			productName = TreeSitterSwiftRunestone;
+		};
+		EBAA020F2F938001000231ED /* TreeSitterTOMLRunestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */;
+			productName = TreeSitterTOMLRunestone;
+		};
+		EBAA02102F938001000231ED /* TreeSitterTSXRunestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */;
+			productName = TreeSitterTSXRunestone;
+		};
+		EBAA02112F938001000231ED /* TreeSitterTypeScriptRunestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */;
+			productName = TreeSitterTypeScriptRunestone;
+		};
+		EBAA02122F938001000231ED /* TreeSitterYAMLRunestone */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03052F938001000231ED /* XCRemoteSwiftPackageReference "TreeSitterLanguages" */;
+			productName = TreeSitterYAMLRunestone;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

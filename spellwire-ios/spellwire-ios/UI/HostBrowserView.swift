@@ -264,8 +264,15 @@ final class HostBrowserCoordinator {
 
 struct HostBrowserView: View {
     @State private var coordinator: HostBrowserCoordinator
+    let onEditHost: () -> Void
 
-    init(host: HostRecord, password: String, trustStore: HostTrustStore, defaultScheme: String) {
+    init(
+        host: HostRecord,
+        password: String,
+        trustStore: HostTrustStore,
+        defaultScheme: String,
+        onEditHost: @escaping () -> Void
+    ) {
         _coordinator = State(
             initialValue: HostBrowserCoordinator(
                 host: host,
@@ -274,6 +281,7 @@ struct HostBrowserView: View {
                 defaultScheme: defaultScheme
             )
         )
+        self.onEditHost = onEditHost
     }
 
     var body: some View {
@@ -285,6 +293,13 @@ struct HostBrowserView: View {
         }
         .navigationTitle(coordinator.host.nickname)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: onEditHost) {
+                    Label("Edit Host", systemImage: "slider.horizontal.3")
+                }
+            }
+        }
         .task {
             coordinator.startIfNeeded()
         }
