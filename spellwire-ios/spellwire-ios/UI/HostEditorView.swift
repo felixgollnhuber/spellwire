@@ -66,7 +66,7 @@ struct HostEditorPresentation: Identifiable {
 struct HostEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: HostEditorDraft
-    @State private var showingShareSheet = false
+    @State private var shareItems: [Any] = []
 
     let title: String
     let publicKey: String
@@ -120,8 +120,8 @@ struct HostEditorView: View {
                         UIPasteboard.general.string = publicKey
                     }
 
-                    Button("Share Public Key") {
-                        showingShareSheet = true
+                    Button("Share Setup Command") {
+                        shareItems = [authorizedKeysInstallCommand]
                     }
                 }
             }
@@ -140,9 +140,18 @@ struct HostEditorView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingShareSheet) {
-                ActivityView(activityItems: [publicKey])
+            .sheet(
+                isPresented: Binding(
+                    get: { !shareItems.isEmpty },
+                    set: { if !$0 { shareItems = [] } }
+                )
+            ) {
+                ActivityView(activityItems: shareItems)
             }
         }
+    }
+
+    private var authorizedKeysInstallCommand: String {
+        SSHSetupCommand.installAuthorizedKeyCommand(for: publicKey)
     }
 }
