@@ -93,6 +93,18 @@ final class BrowserViewModel {
         return homePath
     }
 
+    func canonicalPath(for path: String) async throws -> String {
+        try await fileSystem.canonicalize(path: path)
+    }
+
+    func item(at path: String) async throws -> RemoteItem {
+        let resolvedPath = try await canonicalPath(for: path)
+        let metadata = try await fileSystem.stat(path: resolvedPath)
+        let fileURL = URL(filePath: resolvedPath)
+        let name = fileURL.lastPathComponent.isEmpty ? resolvedPath : fileURL.lastPathComponent
+        return RemoteItem(path: resolvedPath, name: name, metadata: metadata)
+    }
+
     func list(path: String) async throws -> [RemoteItem] {
         let resolvedPath = try await fileSystem.canonicalize(path: path)
         try? fileSessionManager.setLastVisitedPath(resolvedPath, for: host.id)

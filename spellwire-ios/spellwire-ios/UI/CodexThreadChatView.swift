@@ -90,6 +90,9 @@ struct CodexThreadChatView: View {
                                             isCurrentTurn: item.turnID == detail.activeTurnID,
                                             onOpenImage: { preview in
                                                 activeImagePreview = preview
+                                            },
+                                            onOpenFileLink: { url in
+                                                handleMessageLink(url)
                                             }
                                         )
                                         .id(item.id)
@@ -302,6 +305,20 @@ struct CodexThreadChatView: View {
                         ),
                         initialPathOverride: currentDetail?.runtime.cwd ?? thread.cwd
                     )
+                case .file(let path):
+                    ThreadLinkedPathDestinationView(
+                        browser: BrowserViewModel(
+                            host: host,
+                            identity: identity,
+                            trustStore: trustStore,
+                            fileSessionManager: fileSessionManager,
+                            workingCopyManager: workingCopyManager,
+                            conflictResolver: conflictResolver,
+                            previewStore: previewStore,
+                            haptics: haptics
+                        ),
+                        path: path
+                    )
                 case .preview(let port):
                     HostBrowserView(
                         host: host,
@@ -358,6 +375,53 @@ struct CodexThreadChatView: View {
             .replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ":", with: "-")
         return "spellwire-\(cleaned.prefix(24))"
+    }
+
+    private func handleMessageLink(_ url: URL) -> OpenURLAction.Result {
+        guard let path = linkedRemotePath(for: url) else {
+            return .systemAction
+        }
+
+        activeSheet = .file(path: path)
+        haptics.play(.selection)
+        return .handled
+    }
+
+    private func linkedRemotePath(for url: URL) -> String? {
+        if let scheme = url.scheme, scheme != "file" {
+            return nil
+        }
+
+        let rawPath: String
+        if url.isFileURL {
+            rawPath = url.path(percentEncoded: false)
+        } else {
+            rawPath = url.absoluteString.removingPercentEncoding ?? url.absoluteString
+        }
+
+        let candidate = strippedEditorSuffix(from: rawPath)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty else { return nil }
+
+        if candidate.hasPrefix("/") {
+            return candidate
+        }
+
+        let cwd = currentDetail?.runtime.cwd ?? thread.cwd
+        return URL(filePath: cwd)
+            .appending(path: candidate)
+            .path(percentEncoded: false)
+    }
+
+    private func strippedEditorSuffix(from rawPath: String) -> String {
+        guard let suffixRange = rawPath.range(
+            of: #":\d+(?::\d+)?$"#,
+            options: .regularExpression
+        ) else {
+            return rawPath
+        }
+
+        return String(rawPath[..<suffixRange.lowerBound])
     }
 
     private var composerBar: some View {
@@ -767,6 +831,7 @@ private struct ThreadTimelineRow: View {
     @Binding var isExpanded: Bool
     let isCurrentTurn: Bool
     let onOpenImage: (ThreadImagePreview) -> Void
+    let onOpenFileLink: (URL) -> OpenURLAction.Result
 
     var body: some View {
         switch item.kind {
@@ -788,7 +853,7 @@ private struct ThreadTimelineRow: View {
             }
         case "agentMessage":
             VStack(alignment: .leading, spacing: 8) {
-                MarkdownMessageText(text: item.body)
+                MarkdownMessageText(text: item.body, onOpenLink: onOpenFileLink)
                     .foregroundStyle(.white)
                     .textSelection(.enabled)
 
@@ -1179,11 +1244,13 @@ private struct ComposerIconButton: View {
 
 private struct MarkdownMessageText: View {
     let text: String
+    let onOpenLink: (URL) -> OpenURLAction.Result
 
     var body: some View {
         if let attributed = try? AttributedString(markdown: text) {
             Text(attributed)
                 .font(.body)
+                .environment(\.openURL, OpenURLAction(handler: onOpenLink))
         } else {
             Text(text)
                 .font(.body)
@@ -1194,6 +1261,7 @@ private struct MarkdownMessageText: View {
 private enum ThreadToolDestination: Identifiable {
     case terminal
     case files
+    case file(path: String)
     case preview(port: Int)
     case gitDiff
     case gitCommit
@@ -1204,12 +1272,86 @@ private enum ThreadToolDestination: Identifiable {
             return "terminal"
         case .files:
             return "files"
+        case .file(let path):
+            return "file-\(path)"
         case .preview(let port):
             return "preview-\(port)"
         case .gitDiff:
             return "git-diff"
         case .gitCommit:
             return "git-commit"
+        }
+    }
+}
+
+private struct ThreadLinkedPathDestinationView: View {
+    let browser: BrowserViewModel
+    let path: String
+
+    @State private var item: RemoteItem?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Group {
+            if let item {
+                destination(for: item)
+            } else if let errorMessage {
+                ContentUnavailableView(
+                    "Could Not Open File",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(errorMessage)
+                )
+            } else {
+                ProgressView("Opening File…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task(id: path) {
+            guard item == nil, errorMessage == nil else { return }
+            do {
+                item = try await browser.item(at: path)
+            } catch {
+                errorMessage = error.localizedDescription
+                browser.haptics.play(.error)
+            }
+        }
+        .alert(
+            "Trust Host Key",
+            isPresented: Binding(
+                get: { browser.pendingHostKeyChallenge != nil },
+                set: { if !$0 { browser.resolveHostKeyChallenge(approved: false) } }
+            ),
+            presenting: browser.pendingHostKeyChallenge
+        ) { _ in
+            Button("Reject", role: .cancel) {
+                browser.resolveHostKeyChallenge(approved: false)
+            }
+            Button("Trust") {
+                browser.resolveHostKeyChallenge(approved: true)
+            }
+        } message: { challenge in
+            Text("\(challenge.hostLabel)\n\(challenge.fingerprint)")
+        }
+    }
+
+    @ViewBuilder
+    private func destination(for item: RemoteItem) -> some View {
+        switch item.metadata.kind {
+        case .directory:
+            RemoteFolderView(viewModel: browser, path: item.path, title: item.name)
+        case .file, .symlink, .unknown:
+            if FileClassifier.isPreviewable(path: item.path) {
+                RemotePreviewView(browser: browser, item: item)
+            } else {
+                RemoteEditorView(
+                    viewModel: EditorViewModel(
+                        browser: browser,
+                        remotePath: item.path,
+                        title: item.name,
+                        playsSuccessHapticOnLoad: false
+                    )
+                )
+            }
         }
     }
 }

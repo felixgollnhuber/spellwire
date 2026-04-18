@@ -19,6 +19,7 @@ final class EditorViewModel {
     let title: String
     let syntaxLanguage: EditorSyntaxLanguage?
     let wrapsLines: Bool
+    private let playsSuccessHapticOnLoad: Bool
 
     var text = ""
     var session: OpenDocumentSession?
@@ -34,12 +35,18 @@ final class EditorViewModel {
 
     var haptics: HapticsClient { browser.haptics }
 
-    init(browser: any EditorBrowserClient, remotePath: String, title: String) {
+    init(
+        browser: any EditorBrowserClient,
+        remotePath: String,
+        title: String,
+        playsSuccessHapticOnLoad: Bool = true
+    ) {
         self.browser = browser
         self.remotePath = remotePath
         self.title = title
         self.syntaxLanguage = FileClassifier.syntaxLanguage(for: remotePath)
         self.wrapsLines = FileClassifier.prefersWrappedLines(for: remotePath)
+        self.playsSuccessHapticOnLoad = playsSuccessHapticOnLoad
     }
 
     func loadIfNeeded() async {
@@ -103,7 +110,9 @@ final class EditorViewModel {
             text = document.text
             session = document.session
             shareURL = document.localURL
-            haptics.play(.success)
+            if playsSuccessHapticOnLoad {
+                haptics.play(.success)
+            }
         } catch {
             errorMessage = error.localizedDescription
             haptics.play(.error)
