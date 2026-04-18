@@ -104,12 +104,28 @@ test("detailFromThread preserves canonical timeline and appends unique recovery 
             },
         ],
     };
+    const runtime = {
+        cwd: activeThread.cwd,
+        model: "gpt-5.4",
+        modelProvider: "openai",
+        serviceTier: "fast",
+        reasoningEffort: "high",
+        approvalPolicy: "never",
+        sandbox: { type: "dangerFullAccess" as const },
+        git: {
+            sha: "abc123",
+            branch: "main",
+            originURL: "git@example.com:spellwire.git",
+        },
+    };
 
-    const detail = detailFromThread(activeThread, false, recovery, project);
+    const detail = detailFromThread(activeThread, false, recovery, project, runtime);
 
     assert.equal(detail.thread.id, "thread-active");
     assert.equal(detail.thread.status, "active");
     assert.equal(detail.activeTurnID, "turn-2");
+    assert.equal(detail.runtime.model, "gpt-5.4");
+    assert.equal(detail.runtime.git?.branch, "main");
     assert.equal(detail.timeline.filter((item) => item.kind === "recovery").length, 1);
     assert.equal(detail.timeline.at(-1)?.body, "Recent rollout tail that was not yet reconciled.");
     assert.equal(threadToSummary(archivedThread, true).sourceKind, "subAgent");

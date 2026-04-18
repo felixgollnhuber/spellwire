@@ -33,7 +33,13 @@ final class HostConnectionProbe: TerminalTransportDelegate {
             let transport = SSHTerminalTransport(
                 host: host,
                 identity: try identity.clientIdentity(username: host.username),
-                trustedHost: trustedHostForRetry
+                trustedHost: trustedHostForRetry,
+                context: TerminalSessionContext(
+                    title: host.nickname,
+                    workingDirectory: nil,
+                    prefersTmuxResume: host.prefersTmuxResume,
+                    tmuxSessionName: host.tmuxSessionName
+                )
             ) { [weak self] challenge, reply in
                 guard let self else { return }
                 self.state = .trustPrompt

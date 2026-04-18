@@ -1,7 +1,7 @@
 import Foundation
 import Observation
-import SafariServices
 import SwiftUI
+import WebKit
 
 @MainActor
 @Observable
@@ -33,6 +33,10 @@ final class HostBrowserCoordinator {
     let identity: SSHDeviceIdentity
     let trustStore: HostTrustStore
     let defaultScheme: String
+    let title: String
+    let tunnelPortOverride: Int?
+    let directURLOverride: String?
+    let page: WebPage
 
     var state: State = .idle
     var requestedURL: URL?
@@ -41,12 +45,29 @@ final class HostBrowserCoordinator {
     private var portForwardService: LocalPortForwardService?
     private var pendingTrustReply: ((Bool) -> Void)?
     private var initialLoadTask: Task<Void, Never>?
+    private var pageLoadTask: Task<Void, Never>?
+    private var lastLoadedURL: URL?
 
-    init(host: HostRecord, identity: SSHDeviceIdentity, trustStore: HostTrustStore, defaultScheme: String) {
+    init(
+        host: HostRecord,
+        identity: SSHDeviceIdentity,
+        trustStore: HostTrustStore,
+        defaultScheme: String,
+        title: String? = nil,
+        tunnelPortOverride: Int? = nil,
+        directURLOverride: String? = nil
+    ) {
         self.host = host
         self.identity = identity
         self.trustStore = trustStore
         self.defaultScheme = defaultScheme
+        self.title = title ?? host.nickname
+        self.tunnelPortOverride = tunnelPortOverride
+        self.directURLOverride = directURLOverride
+
+        var configuration = WebPage.Configuration()
+        configuration.defaultNavigationPreferences.preferredContentMode = .mobile
+        page = WebPage(configuration: configuration)
     }
 
     func startIfNeeded() {
@@ -59,10 +80,9 @@ final class HostBrowserCoordinator {
     func stop() {
         initialLoadTask?.cancel()
         initialLoadTask = nil
-        requestedURL = nil
-        pendingHostKeyChallenge = nil
-        pendingTrustReply = nil
-        state = .idle
+        pageLoadTask?.cancel()
+        pageLoadTask = nil
+        page.stopLoading()
 
         let service = portForwardService
         portForwardService = nil
@@ -91,13 +111,42 @@ final class HostBrowserCoordinator {
         reply?(approved)
     }
 
+    func loadRequestedURLIfNeeded() async {
+        guard let requestedURL, lastLoadedURL != requestedURL else { return }
+
+        pageLoadTask?.cancel()
+        lastLoadedURL = requestedURL
+        let usesTunnel = tunnelPortOverride != nil || host.browserUsesTunnel
+        let nextState: State = usesTunnel ? .tunnelReady : .connected
+        state = nextState
+
+        pageLoadTask = Task { [weak self] in
+            guard let self else { return }
+
+            do {
+                for try await _ in page.load(requestedURL) {}
+                if !Task.isCancelled {
+                    state = nextState
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                if Self.shouldIgnoreWebError(error) {
+                    return
+                }
+                state = .failed(error.localizedDescription)
+            }
+        }
+    }
+
     private func prepareInitialURL() async {
         do {
             let remoteURL = try normalizedRemoteURL()
             state = .preparing
 
-            if host.browserUsesTunnel {
-                let tunnelTargetPort = host.browserForwardedPort
+            let usesTunnel = tunnelPortOverride != nil || host.browserUsesTunnel
+            if usesTunnel {
+                let tunnelTargetPort = tunnelPortOverride ?? host.browserForwardedPort
                 guard let tunnelTargetPort else {
                     throw TransportError.connectionFailed("Configure a forwarded port for the SSH tunnel.")
                 }
@@ -136,6 +185,13 @@ final class HostBrowserCoordinator {
     }
 
     private func normalizedRemoteURL() throws -> URL {
+        if let tunnelPortOverride {
+            guard let url = URL(string: "http://127.0.0.1:\(tunnelPortOverride)") else {
+                throw TransportError.connectionFailed("The forwarded browser port is invalid.")
+            }
+            return url
+        }
+
         if host.browserUsesTunnel {
             guard let port = host.browserForwardedPort else {
                 throw TransportError.connectionFailed("Configure a forwarded port for this browser first.")
@@ -147,7 +203,9 @@ final class HostBrowserCoordinator {
             return url
         }
 
-        guard let rawURL = host.browserURLString?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let rawURLCandidate = directURLOverride ?? host.browserURLString
+
+        guard let rawURL = rawURLCandidate?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawURL.isEmpty else {
             throw TransportError.connectionFailed("Configure a browser URL for this host first.")
         }
@@ -156,7 +214,7 @@ final class HostBrowserCoordinator {
             return url
         }
 
-        let inferredScheme = host.browserUsesTunnel ? "http" : defaultScheme
+        let inferredScheme = (tunnelPortOverride != nil || host.browserUsesTunnel) ? "http" : defaultScheme
 
         guard let url = URL(string: "\(inferredScheme)://\(rawURL)") else {
             throw TransportError.connectionFailed("The browser URL is invalid.")
@@ -170,33 +228,53 @@ final class HostBrowserCoordinator {
         components?.port = localPort
         return components?.url ?? remoteURL
     }
+
+    private static func shouldIgnoreWebError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            return true
+        }
+        if nsError.domain == WKError.errorDomain, nsError.code == 102 {
+            return true
+        }
+        return false
+    }
 }
 
 struct HostBrowserView: View {
-    @Environment(\.dismiss) private var dismiss
     @State private var coordinator: HostBrowserCoordinator
 
     init(
         host: HostRecord,
         identity: SSHDeviceIdentity,
         trustStore: HostTrustStore,
-        defaultScheme: String
+        defaultScheme: String,
+        title: String? = nil,
+        tunnelPortOverride: Int? = nil,
+        directURLOverride: String? = nil
     ) {
         _coordinator = State(
             initialValue: HostBrowserCoordinator(
                 host: host,
                 identity: identity,
                 trustStore: trustStore,
-                defaultScheme: defaultScheme
+                defaultScheme: defaultScheme,
+                title: title,
+                tunnelPortOverride: tunnelPortOverride,
+                directURLOverride: directURLOverride
             )
         )
     }
 
     var body: some View {
         browserContent
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle(coordinator.title)
+        .navigationBarTitleDisplayMode(.inline)
         .task {
             coordinator.startIfNeeded()
+        }
+        .task(id: coordinator.requestedURL) {
+            await coordinator.loadRequestedURLIfNeeded()
         }
         .alert(
             "Trust Host Key",
@@ -222,54 +300,22 @@ struct HostBrowserView: View {
 
     @ViewBuilder
     private var browserContent: some View {
-        switch coordinator.state {
-        case .failed(let message):
+        if coordinator.requestedURL != nil || coordinator.page.url != nil {
+            WebView(coordinator.page)
+                .background(Color(uiColor: .systemBackground))
+        } else {
+            switch coordinator.state {
+            case .failed(let message):
             ContentUnavailableView(
                 "Couldn’t Open Browser",
                 systemImage: "globe.badge.chevron.backward",
                 description: Text(message)
             )
             .padding(.horizontal, 24)
-        default:
-            if let url = coordinator.requestedURL {
-                SafariBrowserView(url: url) {
-                    dismiss()
-                }
-                    .ignoresSafeArea()
-            } else {
+            default:
                 ProgressView("Preparing Browser…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-        }
-    }
-}
-
-private struct SafariBrowserView: UIViewControllerRepresentable {
-    let url: URL
-    let onFinish: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onFinish: onFinish)
-    }
-
-    func makeUIViewController(context: Context) -> SFSafariViewController {
-        let controller = SFSafariViewController(url: url)
-        controller.dismissButtonStyle = .close
-        controller.delegate = context.coordinator
-        return controller
-    }
-
-    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
-
-    final class Coordinator: NSObject, SFSafariViewControllerDelegate {
-        let onFinish: () -> Void
-
-        init(onFinish: @escaping () -> Void) {
-            self.onFinish = onFinish
-        }
-
-        func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
-            onFinish()
         }
     }
 }

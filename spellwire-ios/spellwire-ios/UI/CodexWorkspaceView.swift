@@ -5,6 +5,14 @@ struct CodexWorkspaceView: View {
     let host: HostRecord
     let service: CodexService
     let hosts: [HostRecord]
+    let identity: SSHDeviceIdentity
+    let trustStore: HostTrustStore
+    let browserDefaultScheme: String
+    let projectPreviewPortStore: ProjectPreviewPortStore
+    let fileSessionManager: FileSessionManager
+    let workingCopyManager: WorkingCopyManager
+    let conflictResolver: ConflictResolver
+    let previewStore: PreviewStore
     let onSelectHost: (HostRecord) -> Void
     let onCreateHost: () -> Void
     let onEditHost: () -> Void
@@ -52,7 +60,19 @@ struct CodexWorkspaceView: View {
             }
         }
         .navigationDestination(item: $pendingThread) { thread in
-            CodexThreadView(service: service, thread: thread)
+            CodexThreadChatView(
+                service: service,
+                thread: thread,
+                host: host,
+                identity: identity,
+                trustStore: trustStore,
+                browserDefaultScheme: browserDefaultScheme,
+                projectPreviewPortStore: projectPreviewPortStore,
+                fileSessionManager: fileSessionManager,
+                workingCopyManager: workingCopyManager,
+                conflictResolver: conflictResolver,
+                previewStore: previewStore
+            )
         }
         .onChange(of: service.projects.map(\.id)) { _, projectIDs in
             guard !projectIDs.isEmpty else { return }

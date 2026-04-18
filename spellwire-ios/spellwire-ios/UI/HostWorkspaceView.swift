@@ -15,6 +15,14 @@ struct HostWorkspaceView: View {
                     host: selectedHost,
                     service: appModel.codexService(for: selectedHost),
                     hosts: appModel.hosts,
+                    identity: appModel.sshIdentity,
+                    trustStore: appModel.trustStore,
+                    browserDefaultScheme: (try? appModel.browserSettingsStore.load().defaultScheme) ?? BrowserSettings.default.defaultScheme,
+                    projectPreviewPortStore: appModel.projectPreviewPortStore,
+                    fileSessionManager: appModel.fileSessionManager,
+                    workingCopyManager: appModel.workingCopyManager,
+                    conflictResolver: appModel.conflictResolver,
+                    previewStore: appModel.previewStore,
                     onSelectHost: { host in
                         appModel.selectedHostID = host.id
                     },

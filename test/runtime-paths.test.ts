@@ -9,6 +9,7 @@ test("runtimePaths resolves the package root and CLI entrypoint from built outpu
 
     assert.equal(path.basename(paths.packageRoot), "spellwire");
     assert.match(paths.cliEntrypointPath, /dist\/src\/cli\.js$/);
+    assert.match(paths.attachmentsRootPath, /Application Support\/Spellwire\/attachments$/);
     assert.equal(path.dirname(paths.cliEntrypointPath), path.join(paths.packageRoot, "dist", "src"));
     assert.equal(spellwireVersion(), "0.1.0");
 });

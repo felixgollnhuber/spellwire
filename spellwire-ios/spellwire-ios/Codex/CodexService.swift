@@ -13,9 +13,13 @@ final class CodexService {
     var threads: [CodexThreadSummary] = []
     var selectedThread: CodexThreadSummary?
     var threadDetail: CodexThreadDetail?
+    var availableModels: [ModelOption] = []
+    var availableBranches: [BranchInfo] = []
     var showsArchived = false
     var isLoadingList = false
     var isLoadingThread = false
+    var isLoadingModels = false
+    var isLoadingBranches = false
     var pendingHostKeyChallenge: HostKeyChallenge?
     var errorMessage: String?
 
@@ -108,39 +112,76 @@ final class CodexService {
         await loadThread(method: "threads.read")
     }
 
-    func send(prompt: String) async {
+    func send(
+        prompt: String,
+        attachmentPaths: [String] = [],
+        model: String? = nil,
+        effort: String? = nil,
+        serviceTier: String? = nil
+    ) async {
         guard let selectedThread else { return }
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPrompt.isEmpty else { return }
+        guard !trimmedPrompt.isEmpty || !attachmentPaths.isEmpty else { return }
 
         let pendingID = "local:\(UUID().uuidString)"
-        if threadDetail?.thread.id == selectedThread.id {
-            threadDetail?.timeline.append(
+        var detailSnapshot = threadDetail
+        let requestCWD = detailSnapshot?.runtime.cwd
+
+        if detailSnapshot?.thread.id == selectedThread.id {
+            detailSnapshot?.timeline.append(
                 CodexTimelineItem(
                     id: pendingID,
                     turnID: selectedThread.lastTurnID ?? "pending",
                     kind: "userMessage",
                     title: "You",
-                    body: trimmedPrompt,
+                    body: pendingUserMessageBody(prompt: trimmedPrompt, attachmentCount: attachmentPaths.count),
                     status: "pending",
                     timestamp: Date().timeIntervalSince1970,
                     source: "canonical"
                 )
             )
+            threadDetail = detailSnapshot
         }
 
         do {
+            let input = ([trimmedPrompt].filter { !$0.isEmpty }.map(CodexTurnInputItem.text))
+                + attachmentPaths.map { CodexTurnInputItem.localImage(path: $0) }
             let mutation: TurnMutationResult = try await client.request(
                 method: "turns.start",
-                params: TurnPromptRequest(threadID: selectedThread.id, prompt: trimmedPrompt)
+                params: TurnPromptRequest(
+                    threadID: selectedThread.id,
+                    input: input,
+                    cwd: requestCWD,
+                    model: model,
+                    effort: effort,
+                    serviceTier: serviceTier,
+                    sandboxPolicy: CodexSandboxPolicy(type: "dangerFullAccess")
+                )
             )
-            threadDetail?.activeTurnID = mutation.turnID
+
+            if var updatedDetail = threadDetail, updatedDetail.thread.id == selectedThread.id {
+                let currentRuntime = updatedDetail.runtime
+                updatedDetail.activeTurnID = mutation.turnID
+                updatedDetail.runtime = CodexThreadRuntime(
+                    cwd: currentRuntime.cwd,
+                    model: model ?? currentRuntime.model,
+                    modelProvider: currentRuntime.modelProvider,
+                    serviceTier: serviceTier ?? currentRuntime.serviceTier,
+                    reasoningEffort: effort ?? currentRuntime.reasoningEffort,
+                    approvalPolicy: currentRuntime.approvalPolicy,
+                    sandbox: CodexSandboxPolicy(type: "dangerFullAccess"),
+                    git: currentRuntime.git
+                )
+                threadDetail = updatedDetail
+            }
             scheduleThreadRefresh()
             scheduleWorkspaceRefresh()
             errorMessage = nil
         } catch {
-            if let index = threadDetail?.timeline.firstIndex(where: { $0.id == pendingID }) {
-                threadDetail?.timeline.remove(at: index)
+            if var failedDetail = threadDetail,
+               let index = failedDetail.timeline.firstIndex(where: { $0.id == pendingID }) {
+                failedDetail.timeline.remove(at: index)
+                threadDetail = failedDetail
             }
             errorMessage = error.localizedDescription
         }
@@ -168,6 +209,78 @@ final class CodexService {
                 method: "desktop.open",
                 params: DesktopOpenRequest(threadID: selectedThread.id)
             )
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadModelsIfNeeded() async {
+        guard availableModels.isEmpty else { return }
+        await refreshModels()
+    }
+
+    func refreshModels() async {
+        isLoadingModels = true
+        defer { isLoadingModels = false }
+
+        do {
+            availableModels = try await client.request(method: "models.list", params: EmptyParams())
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func refreshBranches() async {
+        guard let cwd = threadDetail?.runtime.cwd else {
+            availableBranches = []
+            return
+        }
+
+        isLoadingBranches = true
+        defer { isLoadingBranches = false }
+
+        do {
+            availableBranches = try await client.request(
+                method: "branches.list",
+                params: BranchListRequest(cwd: cwd)
+            )
+            errorMessage = nil
+        } catch {
+            availableBranches = []
+        }
+    }
+
+    func switchBranch(to name: String) async {
+        guard let cwd = threadDetail?.runtime.cwd else { return }
+
+        do {
+            let result: BranchSwitchResult = try await client.request(
+                method: "branches.switch",
+                params: BranchSwitchRequest(cwd: cwd, name: name)
+            )
+            availableBranches = availableBranches.map { branch in
+                BranchInfo(name: branch.name, isCurrent: branch.name == result.currentBranch)
+            }
+            if var currentRuntime = threadDetail?.runtime {
+                currentRuntime = CodexThreadRuntime(
+                    cwd: currentRuntime.cwd,
+                    model: currentRuntime.model,
+                    modelProvider: currentRuntime.modelProvider,
+                    serviceTier: currentRuntime.serviceTier,
+                    reasoningEffort: currentRuntime.reasoningEffort,
+                    approvalPolicy: currentRuntime.approvalPolicy,
+                    sandbox: currentRuntime.sandbox,
+                    git: CodexGitInfo(
+                        sha: currentRuntime.git?.sha,
+                        branch: result.currentBranch,
+                        originURL: currentRuntime.git?.originURL
+                    )
+                )
+                threadDetail?.runtime = currentRuntime
+            }
+            await refreshSelectedThread()
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -228,6 +341,8 @@ final class CodexService {
                     projects[index] = detail.project
                 }
             }
+            await loadModelsIfNeeded()
+            await refreshBranches()
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -529,13 +644,19 @@ final class CodexService {
                 return "@\(object["name"]?.stringValue ?? "mention")"
             case "skill":
                 return "$\(object["name"]?.stringValue ?? "skill")"
-            case "image":
+            case "image", "localImage":
                 return "[image]"
             default:
                 return nil
             }
         }
         .joined(separator: "\n")
+    }
+
+    private func pendingUserMessageBody(prompt: String, attachmentCount: Int) -> String {
+        let attachmentLines = Array(repeating: "[image]", count: attachmentCount)
+        return ([prompt].filter { !$0.isEmpty } + attachmentLines)
+            .joined(separator: "\n")
     }
 
     private func joinedStringArray(_ value: JSONValue?) -> String {
@@ -563,7 +684,21 @@ private struct ThreadCreateRequest: Codable {
 
 private struct TurnPromptRequest: Codable {
     let threadID: String
-    let prompt: String
+    let input: [CodexTurnInputItem]
+    let cwd: String?
+    let model: String?
+    let effort: String?
+    let serviceTier: String?
+    let sandboxPolicy: CodexSandboxPolicy?
+}
+
+private struct BranchListRequest: Codable {
+    let cwd: String
+}
+
+private struct BranchSwitchRequest: Codable {
+    let cwd: String
+    let name: String
 }
 
 private struct TurnInterruptRequest: Codable {

@@ -2,11 +2,13 @@ import SwiftUI
 
 struct RemoteBrowserView: View {
     @State private var viewModel: BrowserViewModel
+    let initialPathOverride: String?
     @State private var rootPath: String?
     @State private var errorMessage: String?
 
-    init(viewModel: BrowserViewModel) {
+    init(viewModel: BrowserViewModel, initialPathOverride: String? = nil) {
         _viewModel = State(initialValue: viewModel)
+        self.initialPathOverride = initialPathOverride
     }
 
     var body: some View {
@@ -32,7 +34,7 @@ struct RemoteBrowserView: View {
         .task {
             guard rootPath == nil, errorMessage == nil else { return }
             do {
-                rootPath = try await viewModel.initialPath()
+                rootPath = try await viewModel.initialPath(preferredPath: initialPathOverride)
             } catch {
                 errorMessage = error.localizedDescription
             }

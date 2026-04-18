@@ -149,7 +149,9 @@ nonisolated final class SFTPRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     func writeFile(path: String, data: Data, expectedRevision: RemoteRevision?) async throws {
         _ = expectedRevision
 
-        let resolvedPath = try await canonicalize(path: path)
+        let parentDirectory = URL(filePath: path).deletingLastPathComponent().path(percentEncoded: false)
+        let resolvedParent = try await canonicalize(path: parentDirectory)
+        let resolvedPath = joinPath(parent: resolvedParent, child: URL(filePath: path).lastPathComponent)
         let directory = URL(filePath: resolvedPath).deletingLastPathComponent().path(percentEncoded: false)
         let tempPath = joinPath(parent: directory, child: ".spellwire-\(UUID().uuidString).tmp")
         let handle = try await openFile(path: tempPath, flags: [.write, .create, .truncate])
