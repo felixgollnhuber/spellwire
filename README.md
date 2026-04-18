@@ -1,42 +1,163 @@
-<p align="center">
-  <img src="./.github/assets/sign_dark.png" alt="Spellwire" width="920" />
-</p>
+![Spellwire](./.github/assets/sign_dark.png)
 
-<h1 align="center">Spellwire</h1>
+# Spellwire
 
-<p align="center">
-  A remote Codex control plane that pairs a local Mac helper with an iPhone companion over a Cloudflare relay.
-</p>
+Spellwire is an iPhone-first remote control for Codex on macOS. It connects directly to your Mac over SSH on the local network or through Tailscale, keeps its view aligned with the same local Codex environment used by `Codex.app`, and does not depend on a relay or hosted control plane.
 
-<p align="center">
-  Start the helper on macOS. Scan the pairing link on iPhone. Keep threads, approvals, attachments, and runtime state in sync from anywhere.
-</p>
+> Status: this repo currently contains docs, assets, and an early iOS scaffold. The npm helper, SSH transport, Codex sync runtime, terminal, file manager, and preview browser described below are the target v1 architecture and are not fully implemented in this repo yet.
 
-<p align="center">
-  Spellwire is an alpha built around five pieces: a macOS desktop shell, a standalone helper process, an iPhone companion, a shared Swift core package, and a Durable Object relay.
-</p>
+![Platform](https://img.shields.io/badge/platform-iOS%2026.4%2B%20%7C%20macOS-black)
+![Transport](https://img.shields.io/badge/transport-SSH%20only-111827)
+![UI](https://img.shields.io/badge/ui-SwiftUI%20%2B%20Liquid%20Glass-111827)
+![Status](https://img.shields.io/badge/status-alpha-f59e0b)
+![License](https://img.shields.io/badge/license-AGPL--3.0--only-black)
 
-<p align="center">
-  <a href="#quick-start"><strong>Quick start</strong></a>
-  ·
-  <a href="#ios-signing"><strong>iOS signing</strong></a>
-  ·
-  <a href="#project-status"><strong>Project status</strong></a>
-  ·
-  <a href="#architecture"><strong>Architecture</strong></a>
-  ·
-  <a href="#verification"><strong>Verification</strong></a>
-</p>
+## What Spellwire Is
 
-<p align="center">
-  <img src="https://img.shields.io/badge/platform-iOS%2026.4%2B%20%7C%20macOS%2026%2B-black" alt="Platform: iOS 26.4+ and macOS 26+" />
-  <img src="https://img.shields.io/badge/core-SwiftUI%20%2B%20Swift%206-111827" alt="Core: SwiftUI and Swift 6" />
-  <img src="https://img.shields.io/badge/relay-Cloudflare%20Workers%20%2B%20Durable%20Objects-1f6feb" alt="Relay: Cloudflare Workers and Durable Objects" />
-  <img src="https://img.shields.io/badge/status-alpha-f59e0b" alt="Status: alpha" />
-  <img src="https://img.shields.io/badge/license-AGPL--3.0--only-black" alt="License: AGPL-3.0-only" />
-</p>
+- An `iOS 26.4+` SwiftUI app designed for iPhone first.
+- A direct SSH client for controlling a Mac that runs Codex locally.
+- A local-first system that mirrors the same Codex universe already present on the Mac.
+- A product that works on LAN and over Tailscale without introducing a relay.
 
-## iOS signing
+## Product Surfaces
+
+### Codex
+
+- Browse multiple projects and multiple chats from the same Mac.
+- Keep the full local Codex history visible on iPhone.
+- Reattach to the correct thread, `cwd`, and runtime context instead of following only the thread currently open on the desktop.
+
+### Terminal
+
+- A real SSH PTY terminal on iPhone.
+- Backed by a pinned `libghostty-vt` revision or vendored snapshot.
+- Built as a native terminal surface, not a simplified log viewer.
+
+### Files
+
+- A Finder-like remote file manager over SSH and SFTP.
+- Browse, search, preview, edit text, create, rename, move, delete, upload, and download.
+- Broad file access without trying to become a second full desktop IDE.
+
+### Previews
+
+- View localhost web previews from the Mac on iPhone through SSH port forwarding only.
+- Support both helper-discovered previews and manual forwarded-port entry.
+
+## Architecture
+
+`Codex.app` on the Mac remains the development environment. Spellwire stays in sync with that same local environment instead of creating a separate mobile backend or a separate remote state store.
+
+```text
+iPhone app
+  |- SSH exec + JSON over stdio -> spellwire helper RPC
+  |- SSH PTY -> terminal
+  |- SFTP / SSH file ops -> file manager
+  |- SSH port forwarding -> localhost previews
+  |
+  v
+macOS host
+  |- sshd
+  |- spellwire helper (LaunchAgent + CLI)
+  |    |- owns or attaches to codex app-server
+  |    |- remembers last active thread
+  |    |- can open explicit threads in Codex.app
+  |
+  |- ~/.codex/sessions
+  |    |- persisted sessions
+  |    |- rollout artifacts for recovery and catch-up
+  |
+  |- Codex.app
+```
+
+## Sync Model
+
+Spellwire's planned sync contract is:
+
+- Use paginated `thread/list` across relevant source kinds to discover all projects and chats, including archived threads.
+- Use `thread/resume` when opening or reattaching to a thread so the same thread id stays bound to the right `cwd` and runtime context.
+- Use `thread/read(includeTurns=true)` for canonical history hydration and reconciliation.
+- Use live notifications such as `thread/*`, `turn/*`, `item/*/delta`, and `item/completed` for low-latency UI updates.
+- Use persisted rollout and session files in `~/.codex/sessions` as the recovery and catch-up path for running chats, context-window usage, off-screen runs, and desktop continuity.
+- Merge history item-aware, not `turnId`-only. For huge or still-running chats, allow a recent-window merge first and run canonical reconciliation afterward.
+- Keep the mobile app independent from whichever desktop thread is currently selected in `Codex.app`.
+
+Because `Codex.app` may not live-refresh external writes, desktop handoff and refresh behavior are helper-owned and bounded. Mobile correctness must not depend on desktop route state.
+
+## Prerequisites
+
+- A Mac running macOS with `Remote Login` enabled.
+- Codex installed and signed in on that Mac.
+- Node.js for the helper install path.
+- Reachability over local network or Tailscale.
+- An iPhone running `iOS 26.4+`.
+- Xcode if you are building the iPhone app from source.
+
+## Planned Install and Update Path
+
+The helper is planned as a globally installed npm package. The public command surface Spellwire is targeting is:
+
+```sh
+npm install -g spellwire@latest
+spellwire up
+spellwire status
+spellwire logs
+spellwire doctor
+```
+
+Update path:
+
+```sh
+npm install -g spellwire@latest
+```
+
+Planned public CLI contract:
+
+- `spellwire up`
+- `spellwire stop`
+- `spellwire status`
+- `spellwire logs`
+- `spellwire doctor`
+- `spellwire rpc`
+- `spellwire open <threadId>`
+- `spellwire previews list`
+
+Homebrew is intentionally later work, not part of the initial required path.
+
+## Manual v1 Onboarding
+
+v1 uses a manual SSH trust model.
+
+1. Enable `Remote Login` on the Mac.
+2. Confirm that Codex can run locally on the Mac and that `codex app-server` is available.
+3. Install the Spellwire helper globally from npm once the package is published.
+4. Generate an Ed25519 keypair inside the iPhone app and store the private key in iOS secure storage.
+5. Add the iPhone public key to the Mac user's `~/.ssh/authorized_keys`.
+6. Verify and pin the Mac host fingerprint in the iPhone app.
+7. Enter host, user, and port details in the iPhone app.
+8. Connect over LAN hostname or IP, or over a Tailscale hostname or IP.
+
+v1 does not assume QR bootstrap and does not depend on macOS Keychain.
+
+## Current Repo State
+
+Today this repository includes:
+
+- `spellwire-ios/` with an early iOS app scaffold
+- shared project assets under `.github/assets/`
+- docs that define the target SSH-first architecture
+
+This repository does not yet contain the full helper/runtime implementation described above. The docs are the contract for that work.
+
+## iOS Design and Scope
+
+- iPhone-first SwiftUI app
+- `iOS 26.4+`
+- Liquid Glass visual system
+- macOS host only in v1
+- LAN and Tailscale support
+
+## iOS Signing
 
 The iOS target reads its signing values from [`spellwire-ios/Config/Signing.xcconfig`](./spellwire-ios/Config/Signing.xcconfig).
 
@@ -52,3 +173,7 @@ Then set your own values in `Signing.local.xcconfig`:
 - `SPELLWIRE_DEVELOPMENT_TEAM`
 
 The local file is gitignored so personal signing data stays out of the public repo.
+
+## License
+
+Spellwire is being built as an `AGPL-3.0-only` open-source project. Keep the repository docs and release artifacts consistent with that license policy.
