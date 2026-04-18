@@ -413,25 +413,6 @@
 		};
 /* End XCBuildConfiguration section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		EBAA03012F938000000231ED /* XCRemoteSwiftPackageReference "swift-nio" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/apple/swift-nio.git";
-			requirement = {
-				kind = exactVersion;
-				version = 2.98.0;
-			};
-		};
-		EBAA03022F938000000231ED /* XCRemoteSwiftPackageReference "swift-nio-ssh" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/apple/swift-nio-ssh.git";
-			requirement = {
-				kind = exactVersion;
-				version = 0.9.1;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
 /* Begin XCConfigurationList section */
 		EBFFC39E2F9379D0000231ED /* Build configuration list for PBXProject "spellwire-ios" */ = {
 			isa = XCConfigurationList;
@@ -452,6 +433,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		EBAA03012F938000000231ED /* XCRemoteSwiftPackageReference "swift-nio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.98.0;
+			};
+		};
+		EBAA03022F938000000231ED /* XCRemoteSwiftPackageReference "swift-nio-ssh" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio-ssh.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.9.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		EBAA02012F938000000231ED /* NIOCore */ = {

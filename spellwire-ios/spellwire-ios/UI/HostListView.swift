@@ -7,6 +7,8 @@ struct HostListView: View {
     let onCreate: () -> Void
     let onEdit: (HostRecord) -> Void
     let onDelete: (IndexSet) -> Void
+    let onDeleteHost: (HostRecord) -> Void
+    let onResetEverything: () -> Void
 
     var body: some View {
         List(selection: $selection) {
@@ -29,6 +31,9 @@ struct HostListView: View {
                         Button("Edit Host") {
                             onEdit(host)
                         }
+                        Button("Delete Host", role: .destructive) {
+                            onDeleteHost(host)
+                        }
                     }
                     .tag(host.id)
                 }
@@ -36,6 +41,15 @@ struct HostListView: View {
             }
         }
         .navigationTitle("Hosts")
+        .toolbar {
+            if !appModel.hosts.isEmpty {
+                ToolbarItem(placement: .bottomBar) {
+                    Button(role: .destructive, action: onResetEverything) {
+                        Label("Reset Everything", systemImage: "arrow.counterclockwise")
+                    }
+                }
+            }
+        }
         .overlay(alignment: .bottomTrailing) {
             if appModel.hosts.isEmpty {
                 Button(action: onCreate) {

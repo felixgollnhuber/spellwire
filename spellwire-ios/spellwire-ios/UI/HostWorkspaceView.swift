@@ -3,6 +3,8 @@ import SwiftUI
 struct HostWorkspaceView: View {
     @Environment(AppModel.self) private var appModel
     let host: HostRecord
+    let onDeleteHost: () -> Void
+    let onResetEverything: () -> Void
 
     var body: some View {
         List {
@@ -28,11 +30,25 @@ struct HostWorkspaceView: View {
                     )
                 }
 
-                workspaceRow(
-                    title: "Remote Files",
-                    systemImage: "folder.badge.gearshape",
-                    description: "SFTP browser, previews, and editor flow plug into this entry point."
-                )
+                NavigationLink {
+                    RemoteBrowserView(
+                        viewModel: BrowserViewModel(
+                            host: host,
+                            password: appModel.password(for: host.id),
+                            trustStore: appModel.trustStore,
+                            fileSessionManager: appModel.fileSessionManager,
+                            workingCopyManager: appModel.workingCopyManager,
+                            conflictResolver: appModel.conflictResolver,
+                            previewStore: appModel.previewStore
+                        )
+                    )
+                } label: {
+                    workspaceRow(
+                        title: "Remote Files",
+                        systemImage: "folder.badge.gearshape",
+                        description: "Browse remote folders, edit local working copies, and preview PDFs or images."
+                    )
+                }
 
                 workspaceRow(
                     title: "Browser",
@@ -48,6 +64,16 @@ struct HostWorkspaceView: View {
             }
             .font(.subheadline)
             .foregroundStyle(.secondary)
+
+            Section("Developer") {
+                Button(role: .destructive, action: onDeleteHost) {
+                    Label("Delete This Host", systemImage: "trash")
+                }
+
+                Button(role: .destructive, action: onResetEverything) {
+                    Label("Reset Everything and Test Onboarding", systemImage: "arrow.counterclockwise")
+                }
+            }
         }
         .navigationTitle(host.nickname)
     }

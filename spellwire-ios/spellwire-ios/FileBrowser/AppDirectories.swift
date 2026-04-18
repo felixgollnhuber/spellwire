@@ -1,6 +1,6 @@
 import Foundation
 
-struct AppDirectories {
+nonisolated struct AppDirectories {
     let applicationSupportDirectory: URL
     let cachesDirectory: URL
 
@@ -17,7 +17,7 @@ struct AppDirectories {
     }
 }
 
-struct FileSessionManager {
+nonisolated struct FileSessionManager {
     private let store: JSONStore<[UUID: String]>
 
     init(appDirectories: AppDirectories) {
@@ -38,5 +38,9 @@ struct FileSessionManager {
         var state = try store.load()
         state.removeValue(forKey: hostID)
         try store.save(state)
+    }
+
+    func clearAll() throws {
+        try store.save([:])
     }
 }

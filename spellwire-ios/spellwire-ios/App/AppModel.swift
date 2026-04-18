@@ -10,6 +10,9 @@ final class AppModel {
     let trustStore: HostTrustStore
     let browserSettingsStore: BrowserSettingsStore
     let fileSessionManager: FileSessionManager
+    let workingCopyManager: WorkingCopyManager
+    let conflictResolver: ConflictResolver
+    let previewStore: PreviewStore
 
     private(set) var hosts: [HostRecord] = []
     var selectedHostID: HostRecord.ID?
@@ -23,6 +26,9 @@ final class AppModel {
             trustStore = HostTrustStore(appDirectories: appDirectories)
             browserSettingsStore = BrowserSettingsStore(appDirectories: appDirectories)
             fileSessionManager = FileSessionManager(appDirectories: appDirectories)
+            workingCopyManager = WorkingCopyManager(appDirectories: appDirectories)
+            conflictResolver = ConflictResolver()
+            previewStore = PreviewStore(appDirectories: appDirectories)
             hosts = try hostStore.load()
             selectedHostID = hosts.first?.id
         } catch {
@@ -41,24 +47,44 @@ final class AppModel {
             hosts.remove(at: offset)
         }
         try hostStore.save(hosts)
-
-        for id in idsToDelete {
-            try credentialStore.removePassword(for: id)
-            try trustStore.removeTrust(for: id)
-            try fileSessionManager.clearLastVisitedPath(for: id)
-        }
+        try removeAssociatedData(for: idsToDelete)
 
         if let selectedHostID, !hosts.contains(where: { $0.id == selectedHostID }) {
             self.selectedHostID = hosts.first?.id
         }
     }
 
+    func deleteHost(id: HostRecord.ID) throws {
+        guard let index = hosts.firstIndex(where: { $0.id == id }) else { return }
+        try deleteHosts(at: IndexSet(integer: index))
+    }
+
+    func resetEverything() throws {
+        let hostIDs = hosts.map(\.id)
+        hosts = []
+        selectedHostID = nil
+
+        try hostStore.save([])
+        try trustStore.clearAll()
+        try fileSessionManager.clearAll()
+        try browserSettingsStore.save(.default)
+
+        for id in hostIDs {
+            try credentialStore.removePassword(for: id)
+        }
+
+        clearCachedHostArtifacts(for: hostIDs)
+    }
+
     func password(for hostID: HostRecord.ID) -> String {
         (try? credentialStore.password(for: hostID)) ?? ""
     }
 
-    @discardableResult
-    func saveHost(from draft: HostEditorDraft, existingID: HostRecord.ID?) throws -> HostRecord {
+    func validatedHostRecord(
+        from draft: HostEditorDraft,
+        existingID: HostRecord.ID? = nil,
+        recordID: HostRecord.ID? = nil
+    ) throws -> HostRecord {
         let hostname = draft.hostname.trimmingCharacters(in: .whitespacesAndNewlines)
         let username = draft.username.trimmingCharacters(in: .whitespacesAndNewlines)
         let nickname = draft.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -84,8 +110,8 @@ final class AppModel {
             hosts.first(where: { $0.id == id })
         }
 
-        let record = HostRecord(
-            id: existingID ?? UUID(),
+        return HostRecord(
+            id: existingID ?? recordID ?? UUID(),
             nickname: nickname.isEmpty ? hostname : nickname,
             hostname: hostname,
             port: port,
@@ -97,6 +123,11 @@ final class AppModel {
             createdAt: existingRecord?.createdAt ?? .now,
             updatedAt: .now
         )
+    }
+
+    @discardableResult
+    func saveHost(from draft: HostEditorDraft, existingID: HostRecord.ID?) throws -> HostRecord {
+        let record = try validatedHostRecord(from: draft, existingID: existingID)
 
         if let existingID, let index = hosts.firstIndex(where: { $0.id == existingID }) {
             hosts[index] = record
@@ -116,6 +147,25 @@ final class AppModel {
 
         selectedHostID = record.id
         return record
+    }
+
+    private func removeAssociatedData(for hostIDs: [HostRecord.ID]) throws {
+        for id in hostIDs {
+            try credentialStore.removePassword(for: id)
+            try trustStore.removeTrust(for: id)
+            try fileSessionManager.clearLastVisitedPath(for: id)
+        }
+
+        clearCachedHostArtifacts(for: hostIDs)
+    }
+
+    private func clearCachedHostArtifacts(for hostIDs: [HostRecord.ID]) {
+        for id in hostIDs {
+            Task {
+                try? await workingCopyManager.clear(hostID: id)
+                try? await previewStore.clear(hostID: id)
+            }
+        }
     }
 }
 

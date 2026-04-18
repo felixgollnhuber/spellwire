@@ -1,6 +1,6 @@
 import Foundation
 
-struct HostRecord: Codable, Identifiable, Hashable {
+nonisolated struct HostRecord: Codable, Identifiable, Hashable {
     let id: UUID
     var nickname: String
     var hostname: String
@@ -49,16 +49,16 @@ struct HostRecord: Codable, Identifiable, Hashable {
     }
 }
 
-struct TrustedHost: Codable, Hashable {
+nonisolated struct TrustedHost: Codable, Hashable {
     let hostID: HostRecord.ID
     let openSSHKey: String
     let fingerprintSHA256: String
     let approvedAt: Date
 }
 
-struct BrowserSettings: Codable, Hashable {
+nonisolated struct BrowserSettings: Codable, Hashable {
     var defaultScheme: String
     var opensInReaderMode: Bool
 
-    static let `default` = BrowserSettings(defaultScheme: "https", opensInReaderMode: false)
+    nonisolated static let `default` = BrowserSettings(defaultScheme: "https", opensInReaderMode: false)
 }

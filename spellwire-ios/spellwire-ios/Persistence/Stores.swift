@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-private enum PersistenceError: LocalizedError {
+nonisolated private enum PersistenceError: LocalizedError {
     case unexpectedStatus(OSStatus)
 
     var errorDescription: String? {
@@ -12,7 +12,7 @@ private enum PersistenceError: LocalizedError {
     }
 }
 
-struct JSONStore<Value: Codable> {
+nonisolated struct JSONStore<Value: Codable> {
     let url: URL
     let defaultValue: Value
 
@@ -23,33 +23,21 @@ struct JSONStore<Value: Codable> {
         }
 
         let data = try Data(contentsOf: url)
-        return try JSONDecoder.spellwire.decode(Value.self, from: data)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(Value.self, from: data)
     }
 
     func save(_ value: Value) throws {
-        let data = try JSONEncoder.spellwire.encode(value)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(value)
         try data.write(to: url, options: .atomic)
     }
 }
 
-extension JSONEncoder {
-    static let spellwire: JSONEncoder = {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        return encoder
-    }()
-}
-
-extension JSONDecoder {
-    static let spellwire: JSONDecoder = {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
-    }()
-}
-
-struct HostStore {
+nonisolated struct HostStore {
     private let store: JSONStore<[HostRecord]>
 
     init(appDirectories: AppDirectories) {
@@ -65,7 +53,7 @@ struct HostStore {
     }
 }
 
-struct HostTrustStore {
+nonisolated struct HostTrustStore {
     private let store: JSONStore<[UUID: TrustedHost]>
 
     init(appDirectories: AppDirectories) {
@@ -95,9 +83,13 @@ struct HostTrustStore {
         entries.removeValue(forKey: hostID)
         try save(entries)
     }
+
+    func clearAll() throws {
+        try save([:])
+    }
 }
 
-struct BrowserSettingsStore {
+nonisolated struct BrowserSettingsStore {
     private let store: JSONStore<BrowserSettings>
 
     init(appDirectories: AppDirectories) {
@@ -113,7 +105,7 @@ struct BrowserSettingsStore {
     }
 }
 
-struct KeychainCredentialStore {
+nonisolated struct KeychainCredentialStore {
     private let service = "\(Bundle.main.bundleIdentifier ?? "xyz.floritzmaier.spellwire-ios").host-password"
 
     func password(for hostID: UUID) throws -> String? {
