@@ -190,17 +190,27 @@ struct WelcomeExperienceView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-                HStack(spacing: 12) {
-                    SpellwireActionButton(variant: .secondary, size: .md) {
-                        UIPasteboard.general.string = appModel.publicKeyOpenSSH
-                    } label: {
-                        Label("Copy Key", systemImage: "doc.on.doc")
+                VStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        SpellwireActionButton(variant: .secondary, size: .md) {
+                            UIPasteboard.general.string = appModel.publicKeyOpenSSH
+                        } label: {
+                            Label("Copy Key", systemImage: "doc.on.doc")
+                        }
+
+                        SpellwireActionButton(variant: .secondary, size: .md) {
+                            UIPasteboard.general.string = authorizedKeysInstallCommand
+                        } label: {
+                            Label("Copy Command", systemImage: "terminal")
+                        }
                     }
 
-                    SpellwireActionButton(variant: .secondary, size: .md) {
-                        shareItems = [authorizedKeysInstallCommand]
-                    } label: {
-                        Label("Share Command", systemImage: "square.and.arrow.up")
+                    HStack {
+                        SpellwireActionButton(variant: .secondary, size: .md) {
+                            shareItems = [authorizedKeysInstallCommand]
+                        } label: {
+                            Label("Share Command", systemImage: "square.and.arrow.up")
+                        }
                     }
                 }
 
