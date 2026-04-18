@@ -7,9 +7,10 @@ struct TerminalSessionView: View {
         host: HostRecord,
         identity: SSHDeviceIdentity,
         trustStore: HostTrustStore,
+        haptics: HapticsClient,
         context: TerminalSessionContext? = nil
     ) {
-        _coordinator = State(initialValue: TerminalSessionCoordinator(host: host, identity: identity, trustStore: trustStore, context: context)!)
+        _coordinator = State(initialValue: TerminalSessionCoordinator(host: host, identity: identity, trustStore: trustStore, haptics: haptics, context: context)!)
     }
 
     var body: some View {

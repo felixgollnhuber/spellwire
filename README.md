@@ -130,7 +130,7 @@ The current helper scaffold exposes typed JSON RPC for thread-local Git status, 
 
 Current v1 limits are intentionally narrow:
 
-- commits stage only files attributed to the current thread's file-change history
+- Git counts and structured diffs are scoped to the current thread's file-change history, while commit actions stage and commit the full working tree
 - pushes target `origin` only
 - pull request creation is GitHub-only and requires authenticated `gh`
 - the iPhone app consumes typed helper JSON and does not scrape Git CLI text

@@ -41,6 +41,7 @@ struct RemotePreviewView: View {
                 previewURL = try await browser.previewURL(path: item.path)
             } catch {
                 errorMessage = error.localizedDescription
+                browser.haptics.play(.error)
             }
         }
         .sheet(isPresented: $isSharePresented) {

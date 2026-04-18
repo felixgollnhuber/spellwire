@@ -14,10 +14,15 @@ final class HostConnectionProbe: TerminalTransportDelegate {
     var pendingHostKeyChallenge: HostKeyChallenge?
     private(set) var approvedHostTrust: ApprovedHostTrust?
 
+    private let haptics: HapticsClient
     private var transport: TerminalTransport?
     private var pendingTrustReply: ((Bool) -> Void)?
     private var didReachConnectedState = false
     private var isDisconnectRequested = false
+
+    init(haptics: HapticsClient? = nil) {
+        self.haptics = haptics ?? .live
+    }
 
     func connect(host: HostRecord, identity: SSHDeviceIdentity) {
         disconnect()
@@ -42,9 +47,7 @@ final class HostConnectionProbe: TerminalTransportDelegate {
                 )
             ) { [weak self] challenge, reply in
                 guard let self else { return }
-                self.state = .trustPrompt
-                self.pendingHostKeyChallenge = challenge
-                self.pendingTrustReply = reply
+                self.presentHostKeyChallenge(challenge, reply: reply)
             }
 
             transport.delegate = self
@@ -53,6 +56,7 @@ final class HostConnectionProbe: TerminalTransportDelegate {
         } catch {
             state = .failed(error.localizedDescription)
             errorMessage = error.localizedDescription
+            haptics.play(.error)
         }
     }
 
@@ -68,6 +72,13 @@ final class HostConnectionProbe: TerminalTransportDelegate {
         approvedHostTrust = nil
     }
 
+    func presentHostKeyChallenge(_ challenge: HostKeyChallenge, reply: @escaping (Bool) -> Void) {
+        state = .trustPrompt
+        pendingHostKeyChallenge = challenge
+        pendingTrustReply = reply
+        haptics.play(.warning)
+    }
+
     func resolveHostKeyChallenge(approved: Bool) {
         guard let challenge = pendingHostKeyChallenge else { return }
 
@@ -81,6 +92,7 @@ final class HostConnectionProbe: TerminalTransportDelegate {
         pendingHostKeyChallenge = nil
         let reply = pendingTrustReply
         pendingTrustReply = nil
+        haptics.play(approved ? .success : .warning)
         reply?(approved)
     }
 
@@ -88,6 +100,7 @@ final class HostConnectionProbe: TerminalTransportDelegate {
         didReachConnectedState = true
         state = .connected
         errorMessage = nil
+        haptics.play(.success)
     }
 
     func transportDidReceive(data: Data) {}
@@ -103,6 +116,7 @@ final class HostConnectionProbe: TerminalTransportDelegate {
         if let error {
             state = .failed(error.localizedDescription)
             errorMessage = error.localizedDescription
+            haptics.play(.error)
         } else {
             state = .disconnected
         }

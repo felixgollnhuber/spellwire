@@ -130,3 +130,58 @@ test("detailFromThread preserves canonical timeline and appends unique recovery 
     assert.equal(detail.timeline.at(-1)?.body, "Recent rollout tail that was not yet reconciled.");
     assert.equal(threadToSummary(archivedThread, true).sourceKind, "subAgent");
 });
+
+test("detailFromThread preserves structured user-message content for images", () => {
+    const threadWithImage = {
+        ...activeThread,
+        turns: [
+            {
+                id: "turn-image",
+                status: "completed",
+                startedAt: 130,
+                completedAt: 131,
+                items: [
+                    {
+                        id: "user-image",
+                        type: "userMessage",
+                        content: [
+                            { type: "text", text: "Please inspect this" },
+                            { type: "localImage", path: "/tmp/chat/upload.png" },
+                            { type: "image", url: "https://example.com/reference.png" },
+                        ],
+                    },
+                ],
+            },
+        ],
+    };
+
+    const project: CodexProject = {
+        id: threadWithImage.cwd,
+        cwd: threadWithImage.cwd,
+        title: "spellwire",
+        threadCount: 1,
+        activeThreadCount: 1,
+        archivedThreadCount: 0,
+        updatedAt: threadWithImage.updatedAt,
+    };
+    const runtime = {
+        cwd: threadWithImage.cwd,
+        model: "gpt-5.4",
+        modelProvider: "openai",
+        serviceTier: null,
+        reasoningEffort: "medium",
+        approvalPolicy: "never",
+        sandbox: { type: "dangerFullAccess" as const },
+        git: null,
+    };
+
+    const detail = detailFromThread(threadWithImage, false, null, project, runtime);
+    const userMessage = detail.timeline.find((item) => item.id === "user-image");
+
+    assert.deepEqual(userMessage?.content, [
+        { type: "text", text: "Please inspect this" },
+        { type: "localImage", path: "/tmp/chat/upload.png" },
+        { type: "image", url: "https://example.com/reference.png" },
+    ]);
+    assert.equal(userMessage?.body, "Please inspect this\n[image]\n[image]");
+});

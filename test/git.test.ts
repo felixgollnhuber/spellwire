@@ -151,7 +151,10 @@ test("executeGitCommit stages all changes, pushes to origin, and returns a PR UR
             cwd,
             action: "commitPushAndPR",
         },
-        { execFileImpl: fakeGhExec(realExec) }
+        {
+            execFileImpl: fakeGhExec(realExec),
+            generateCommitMessageImpl: async () => "Generate git UI changes",
+        }
     );
 
     assert.match(result.commitSHA, /^[0-9a-f]{40}$/);
@@ -163,7 +166,7 @@ test("executeGitCommit stages all changes, pushes to origin, and returns a PR UR
     assert.match(remoteBranch, /feature\/git-ui/);
 });
 
-test("executeGitCommit commits only the scoped thread paths", async () => {
+test("executeGitCommit stages the whole worktree even when the chat diff is scoped", async () => {
     const cwd = setupRepo();
     execFileSync("git", ["checkout", "-b", "feature/thread-scope"], { cwd });
     writeFileSync(path.join(cwd, "tracked.txt"), "first\nsecond updated\n");
@@ -173,12 +176,42 @@ test("executeGitCommit commits only the scoped thread paths", async () => {
         cwd,
         paths: ["tracked.txt"],
         action: "commit",
+    }, {
+        generateCommitMessageImpl: async () => "Commit full worktree",
     });
 
     const headFiles = execFileSync("git", ["show", "--name-only", "--format=", "HEAD"], { cwd, encoding: "utf8" });
     assert.match(headFiles, /tracked\.txt/);
-    assert.doesNotMatch(headFiles, /outside\.txt/);
+    assert.match(headFiles, /outside\.txt/);
 
     const remainingStatus = execFileSync("git", ["status", "--porcelain=v1", "--", "outside.txt"], { cwd, encoding: "utf8" });
-    assert.match(remainingStatus, /\?\? outside\.txt/);
+    assert.equal(remainingStatus.trim(), "");
+});
+
+test("executeGitCommit generates the commit message from the full worktree diff when left blank", async () => {
+    const cwd = setupRepo();
+    execFileSync("git", ["checkout", "-b", "feature/generated-message"], { cwd });
+    writeFileSync(path.join(cwd, "tracked.txt"), "first\nsecond updated\n");
+    writeFileSync(path.join(cwd, "outside.txt"), "outside\n");
+
+    await executeGitCommit(
+        {
+            cwd,
+            paths: ["tracked.txt"],
+            action: "commit",
+            commitMessage: "   ",
+        },
+        {
+            generateCommitMessageImpl: async ({ diff, fallback, branch }) => {
+                assert.match(diff, /tracked\.txt/);
+                assert.match(diff, /outside\.txt/);
+                assert.equal(branch, "feature/generated-message");
+                assert.match(fallback, /Update/);
+                return "Generate full worktree commit";
+            },
+        }
+    );
+
+    const subject = execFileSync("git", ["log", "-1", "--pretty=%s"], { cwd, encoding: "utf8" }).trim();
+    assert.equal(subject, "Generate full worktree commit");
 });

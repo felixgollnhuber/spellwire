@@ -100,7 +100,7 @@ Agents must preserve this model:
 - The terminal surface must use a pinned `libghostty-vt` revision or vendored snapshot. Do not float to arbitrary latest builds.
 - Keep helper state, session recovery, and desktop handoff logic separate from SwiftUI views.
 - Prefer stable, typed RPC contracts over shell scraping or ad hoc text parsing.
-- v1 Git mutations are scoped to files changed by the current thread, push only to `origin`, and create pull requests only for GitHub remotes with authenticated `gh`.
+- v1 Git status and diff presentation are scoped to files changed by the current thread, while commit actions stage and commit the full working tree, push only to `origin`, and create pull requests only for GitHub remotes with authenticated `gh`.
 - Keep SSH bootstrap commands shell-neutral. Remote helper startup, tmux/session resume, and onboarding snippets must execute correctly even when the account login shell is not POSIX-compatible.
 
 ## Documentation Rule

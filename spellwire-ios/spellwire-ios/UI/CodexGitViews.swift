@@ -5,14 +5,18 @@ struct GitDiffCountsLabel: View {
     let deletions: Int
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             Text("+\(additions)")
                 .foregroundStyle(Color.green)
+                .layoutPriority(1)
             Text("-\(deletions)")
                 .foregroundStyle(Color.red)
+                .layoutPriority(1)
         }
         .font(.caption.weight(.semibold))
         .monospacedDigit()
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
@@ -23,19 +27,22 @@ struct ThreadGitDiffPillButton: View {
     var body: some View {
         Button(action: action) {
             GitDiffCountsLabel(additions: status.additions, deletions: status.deletions)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background {
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.001))
-                    .glassEffect(.regular.tint(.blue.opacity(0.18)).interactive(), in: .capsule)
-                    .overlay {
-                        Capsule(style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-                    }
-            }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(minWidth: 74)
+                .background {
+                    Capsule(style: .continuous)
+                        .fill(Color.white.opacity(0.001))
+                        .glassEffect(.regular.tint(.blue.opacity(0.18)).interactive(), in: .capsule)
+                        .overlay {
+                            Capsule(style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                        }
+                }
         }
         .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: false)
+        .layoutPriority(1)
     }
 }
 
@@ -288,7 +295,6 @@ struct CodexGitCommitSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var commitMessageDraft = ""
-    @State private var didHydrateDraft = false
 
     var body: some View {
         Group {
@@ -309,7 +315,7 @@ struct CodexGitCommitSheet: View {
                                 .font(.headline)
                                 .foregroundStyle(.white)
 
-                            TextField("", text: $commitMessageDraft, axis: .vertical)
+                            TextField("Optional. Leave empty to auto-generate from the full diff.", text: $commitMessageDraft, axis: .vertical)
                                 .lineLimit(2...5)
                                 .padding(12)
                                 .background(
@@ -380,10 +386,6 @@ struct CodexGitCommitSheet: View {
         }
         .task {
             await service.loadGitCommitPreview(force: currentPreview == nil, reportErrors: true)
-            hydrateDraftIfNeeded()
-        }
-        .onChange(of: currentPreview?.defaultCommitMessage) { _, _ in
-            hydrateDraftIfNeeded()
         }
     }
 
@@ -428,13 +430,6 @@ struct CodexGitCommitSheet: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(Color.white.opacity(enabled ? 0.08 : 0.04), lineWidth: 1)
             }
-    }
-
-    private func hydrateDraftIfNeeded() {
-        guard let preview = currentPreview else { return }
-        guard !didHydrateDraft || commitMessageDraft.isEmpty else { return }
-        commitMessageDraft = preview.defaultCommitMessage
-        didHydrateDraft = true
     }
 
     @MainActor

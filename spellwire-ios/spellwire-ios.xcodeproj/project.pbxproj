@@ -27,7 +27,18 @@
 		EBAA01122F938001000231ED /* TreeSitterYAMLRunestone in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02122F938001000231ED /* TreeSitterYAMLRunestone */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		EBC0D0072F940001000231ED /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EBFFC39B2F9379D0000231ED /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EBFFC3A22F9379D0000231ED;
+			remoteInfo = "spellwire-ios";
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		EBC0D0012F940001000231ED /* spellwire-iosTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "spellwire-iosTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		EBFFC3A32F9379D0000231ED /* spellwire-ios.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "spellwire-ios.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		EBFFC3B62F9379D1000231ED /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		EBFFC3B72F9379D1000231ED /* Signing.local.xcconfig.example */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.local.xcconfig.example; sourceTree = "<group>"; };
@@ -44,6 +55,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		EBC0D0022F940001000231ED /* spellwire-iosTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "spellwire-iosTests";
+			sourceTree = "<group>";
+		};
 		EBFFC3A52F9379D0000231ED /* spellwire-ios */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -55,6 +71,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		EBC0D0032F940001000231ED /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		EBFFC3A02F9379D0000231ED /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -88,6 +111,7 @@
 			children = (
 				EBFFC3B82F9379D1000231ED /* Config */,
 				EBFFC3A52F9379D0000231ED /* spellwire-ios */,
+				EBC0D0022F940001000231ED /* spellwire-iosTests */,
 				EBFFC3A42F9379D0000231ED /* Products */,
 			);
 			sourceTree = "<group>";
@@ -96,6 +120,7 @@
 			isa = PBXGroup;
 			children = (
 				EBFFC3A32F9379D0000231ED /* spellwire-ios.app */,
+				EBC0D0012F940001000231ED /* spellwire-iosTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -112,6 +137,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		EBC0D0062F940001000231ED /* spellwire-iosTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EBC0D00B2F940001000231ED /* Build configuration list for PBXNativeTarget "spellwire-iosTests" */;
+			buildPhases = (
+				EBC0D0042F940001000231ED /* Sources */,
+				EBC0D0032F940001000231ED /* Frameworks */,
+				EBC0D0052F940001000231ED /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				EBC0D0082F940001000231ED /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				EBC0D0022F940001000231ED /* spellwire-iosTests */,
+			);
+			name = "spellwire-iosTests";
+			packageProductDependencies = (
+			);
+			productName = "spellwire-iosTests";
+			productReference = EBC0D0012F940001000231ED /* spellwire-iosTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		EBFFC3A22F9379D0000231ED /* spellwire-ios */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = EBFFC3B12F9379D1000231ED /* Build configuration list for PBXNativeTarget "spellwire-ios" */;
@@ -163,6 +211,10 @@
 				LastSwiftUpdateCheck = 2640;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
+					EBC0D0062F940001000231ED = {
+						CreatedOnToolsVersion = 26.4.1;
+						TestTargetID = EBFFC3A22F9379D0000231ED;
+					};
 					EBFFC3A22F9379D0000231ED = {
 						CreatedOnToolsVersion = 26.4.1;
 					};
@@ -190,11 +242,19 @@
 			projectRoot = "";
 			targets = (
 				EBFFC3A22F9379D0000231ED /* spellwire-ios */,
+				EBC0D0062F940001000231ED /* spellwire-iosTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		EBC0D0052F940001000231ED /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		EBFFC3A12F9379D0000231ED /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -230,6 +290,13 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		EBC0D0042F940001000231ED /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		EBFFC39F2F9379D0000231ED /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -239,7 +306,75 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		EBC0D0082F940001000231ED /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EBFFC3A22F9379D0000231ED /* spellwire-ios */;
+			targetProxy = EBC0D0072F940001000231ED /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		EBC0D0092F940001000231ED /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/ghostty-vt-headers",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.felixgollnhuber.spellwire-iosTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_OBJC_BRIDGING_HEADER = "spellwire-ios/App/GhosttyVt-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/spellwire-ios.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/spellwire-ios";
+			};
+			name = Debug;
+		};
+		EBC0D00A2F940001000231ED /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/ghostty-vt-headers",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.felixgollnhuber.spellwire-iosTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_OBJC_BRIDGING_HEADER = "spellwire-ios/App/GhosttyVt-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/spellwire-ios.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/spellwire-ios";
+			};
+			name = Release;
+		};
 		EBFFC3B22F9379D1000231ED /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = EBFFC3B62F9379D1000231ED /* Signing.xcconfig */;
@@ -462,6 +597,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		EBC0D00B2F940001000231ED /* Build configuration list for PBXNativeTarget "spellwire-iosTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EBC0D0092F940001000231ED /* Debug */,
+				EBC0D00A2F940001000231ED /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		EBFFC39E2F9379D0000231ED /* Build configuration list for PBXProject "spellwire-ios" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

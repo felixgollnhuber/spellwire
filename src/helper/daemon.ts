@@ -502,7 +502,9 @@ export class SpellwireDaemon {
         if (!params.cwd) {
             throw new Error("cwd is required.");
         }
-        return executeGitCommit(params);
+        return executeGitCommit(params, {
+            codexExecutablePath: this.paths.codexExecutablePath,
+        });
     }
 
     private broadcast(event: HelperEventEnvelope): void {

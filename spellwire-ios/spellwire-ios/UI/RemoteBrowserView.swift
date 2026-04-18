@@ -37,6 +37,7 @@ struct RemoteBrowserView: View {
                 rootPath = try await viewModel.initialPath(preferredPath: initialPathOverride)
             } catch {
                 errorMessage = error.localizedDescription
+                viewModel.haptics.play(.error)
             }
         }
         .alert(
@@ -180,7 +181,7 @@ struct RemoteFolderView: View {
             await load()
         }
         .refreshable {
-            await load()
+            await load(userInitiated: true)
         }
         .alert("New Folder", isPresented: $showingNewFolderPrompt) {
             TextField("Folder Name", text: $newFolderName)
@@ -441,13 +442,23 @@ struct RemoteFolderView: View {
     }
 
     private func load() async {
+        await load(userInitiated: false)
+    }
+
+    private func load(userInitiated: Bool) async {
         isLoading = true
         errorMessage = nil
 
         do {
             items = try await viewModel.list(path: path)
+            if userInitiated {
+                viewModel.haptics.play(.success)
+            }
         } catch {
             errorMessage = error.localizedDescription
+            if userInitiated {
+                viewModel.haptics.play(.error)
+            }
         }
 
         selectedItemIDs.removeAll()
@@ -479,11 +490,13 @@ struct RemoteFolderView: View {
 
     private func beginSelection() {
         isSelecting = true
+        viewModel.haptics.play(.selection)
     }
 
     private func endSelection() {
         isSelecting = false
         selectedItemIDs.removeAll()
+        viewModel.haptics.play(.selection)
     }
 
     private func toggleSelection(for item: RemoteItem) {
@@ -492,6 +505,7 @@ struct RemoteFolderView: View {
         } else {
             selectedItemIDs.insert(item.id)
         }
+        viewModel.haptics.play(.selection)
     }
 
     private var trimmedSearchText: String {

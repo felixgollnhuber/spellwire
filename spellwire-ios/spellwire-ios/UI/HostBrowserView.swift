@@ -33,6 +33,7 @@ final class HostBrowserCoordinator {
     let identity: SSHDeviceIdentity
     let trustStore: HostTrustStore
     let defaultScheme: String
+    let haptics: HapticsClient
     let title: String
     let tunnelPortOverride: Int?
     let directURLOverride: String?
@@ -53,6 +54,7 @@ final class HostBrowserCoordinator {
         identity: SSHDeviceIdentity,
         trustStore: HostTrustStore,
         defaultScheme: String,
+        haptics: HapticsClient,
         title: String? = nil,
         tunnelPortOverride: Int? = nil,
         directURLOverride: String? = nil
@@ -61,6 +63,7 @@ final class HostBrowserCoordinator {
         self.identity = identity
         self.trustStore = trustStore
         self.defaultScheme = defaultScheme
+        self.haptics = haptics
         self.title = title ?? host.nickname
         self.tunnelPortOverride = tunnelPortOverride
         self.directURLOverride = directURLOverride
@@ -108,6 +111,7 @@ final class HostBrowserCoordinator {
         pendingHostKeyChallenge = nil
         let reply = pendingTrustReply
         pendingTrustReply = nil
+        haptics.play(approved ? .success : .warning)
         reply?(approved)
     }
 
@@ -135,6 +139,7 @@ final class HostBrowserCoordinator {
                     return
                 }
                 state = .failed(error.localizedDescription)
+                haptics.play(.error)
             }
         }
     }
@@ -160,10 +165,12 @@ final class HostBrowserCoordinator {
                         self.state = .preparing
                         self.pendingHostKeyChallenge = challenge
                         self.pendingTrustReply = reply
+                        self.haptics.play(.warning)
                     },
                     onDisconnect: { [weak self] error in
                         guard let self, let error else { return }
                         self.state = .failed(error.localizedDescription)
+                        self.haptics.play(.error)
                     }
                 )
                 self.portForwardService = portForwardService
@@ -181,6 +188,7 @@ final class HostBrowserCoordinator {
             }
         } catch {
             state = .failed(error.localizedDescription)
+            haptics.play(.error)
         }
     }
 
@@ -249,6 +257,7 @@ struct HostBrowserView: View {
         identity: SSHDeviceIdentity,
         trustStore: HostTrustStore,
         defaultScheme: String,
+        haptics: HapticsClient,
         title: String? = nil,
         tunnelPortOverride: Int? = nil,
         directURLOverride: String? = nil
@@ -259,6 +268,7 @@ struct HostBrowserView: View {
                 identity: identity,
                 trustStore: trustStore,
                 defaultScheme: defaultScheme,
+                haptics: haptics,
                 title: title,
                 tunnelPortOverride: tunnelPortOverride,
                 directURLOverride: directURLOverride

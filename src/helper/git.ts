@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -33,6 +35,13 @@ export type ExecFileLike = (
 
 export interface GitCommandDeps {
     execFileImpl?: ExecFileLike;
+    codexExecutablePath?: string | null;
+    generateCommitMessageImpl?: (input: {
+        cwd: string;
+        branch: string | null;
+        diff: string;
+        fallback: string;
+    }) => Promise<string | null>;
 }
 
 interface GitScope {
@@ -51,7 +60,7 @@ function defaultExecFileImpl(
     return execFileAsync(file, args, options);
 }
 
-function commandDeps(overrides?: GitCommandDeps): Required<GitCommandDeps> {
+function commandDeps(overrides?: GitCommandDeps): { execFileImpl: ExecFileLike } {
     return {
         execFileImpl: overrides?.execFileImpl ?? defaultExecFileImpl,
     };
@@ -546,6 +555,118 @@ function defaultCommitMessage(files: GitDiffFile[]): string {
     return `Update ${files.length} files`;
 }
 
+function sanitizeCommitMessage(value: string | null | undefined): string | null {
+    if (!value) {
+        return null;
+    }
+
+    const firstLine = value
+        .replace(/\r\n/g, "\n")
+        .split("\n")
+        .map((line) => line.trim())
+        .find(Boolean);
+    if (!firstLine) {
+        return null;
+    }
+
+    const cleaned = firstLine
+        .replace(/^["'`]+/, "")
+        .replace(/["'`]+$/, "")
+        .trim();
+    return cleaned || null;
+}
+
+async function fullWorkingTreePatch(cwd: string, overrides?: GitCommandDeps): Promise<string> {
+    const trackedPatch = await hasHeadCommit(cwd, overrides)
+        ? runGit(
+            cwd,
+            ["diff", "--no-color", "--patch", "--find-renames", "--find-copies", "--unified=3", "HEAD"],
+            overrides
+        )
+        : Promise.resolve("");
+    const untrackedEntries = parsePorcelain(
+        await runGit(cwd, ["status", "--porcelain=v1", "--untracked-files=all"], overrides)
+    ).filter((entry) => entry.x === "?" && entry.y === "?");
+    const untrackedPatches = await Promise.all(
+        untrackedEntries.map((entry) =>
+            runGit(cwd, ["diff", "--no-index", "--no-color", "--patch", "--unified=3", "/dev/null", entry.path], overrides)
+        )
+    );
+
+    return [
+        await trackedPatch,
+        ...untrackedPatches,
+    ]
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .join("\n\n");
+}
+
+async function generateCommitMessage(
+    cwd: string,
+    branch: string | null,
+    fallback: string,
+    overrides?: GitCommandDeps
+): Promise<string> {
+    const fullDiff = await fullWorkingTreePatch(cwd, overrides);
+    if (!fullDiff.trim()) {
+        return fallback;
+    }
+
+    if (overrides?.generateCommitMessageImpl) {
+        const generated = sanitizeCommitMessage(
+            await overrides.generateCommitMessageImpl({
+                cwd,
+                branch,
+                diff: fullDiff,
+                fallback,
+            })
+        );
+        return generated ?? fallback;
+    }
+
+    const codexExecutable = overrides?.codexExecutablePath?.trim() || "codex";
+    const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "spellwire-commit-message-"));
+    const outputPath = path.join(tempDirectory, "message.txt");
+    const prompt = [
+        "Write a concise git commit subject line in English for the complete working tree diff.",
+        "Use imperative mood.",
+        "Return exactly one line and no quotes, bullets, prefixes, explanations, or markdown.",
+        "Stay under 72 characters when possible.",
+        `Current branch: ${branch ?? "unknown"}`,
+        `Fallback subject: ${fallback}`,
+        "",
+        "Full diff:",
+        fullDiff,
+    ].join("\n");
+
+    try {
+        await runCommand(
+            codexExecutable,
+            [
+                "exec",
+                "--ephemeral",
+                "--sandbox",
+                "read-only",
+                "-C",
+                cwd,
+                "--skip-git-repo-check",
+                "--output-last-message",
+                outputPath,
+                prompt,
+            ],
+            cwd,
+            overrides
+        );
+        const generated = sanitizeCommitMessage(await readFile(outputPath, "utf8"));
+        return generated ?? fallback;
+    } catch {
+        return fallback;
+    } finally {
+        await rm(tempDirectory, { recursive: true, force: true });
+    }
+}
+
 function defaultPRBody(diff: CodexGitDiff, commitMessage: string): string {
     const fileList = diff.files.slice(0, 8).map((file) => `- ${file.path}`).join("\n");
     return [
@@ -759,6 +880,7 @@ export async function executeGitCommit(params: GitCommitExecuteParams, overrides
         params.paths == null ? {} : { paths: params.paths }
     );
     const preview = await getGitCommitPreview(params.cwd, { paths: scopedPaths }, overrides);
+    const fullDiff = await getGitDiff(params.cwd, {}, overrides);
     const targetAction = preview.actions.find((action) => action.id === params.action);
     if (!targetAction?.enabled) {
         throw new Error(targetAction?.reason ?? "This Git action is not available.");
@@ -767,8 +889,10 @@ export async function executeGitCommit(params: GitCommitExecuteParams, overrides
         throw new Error("No file changes from this chat were detected.");
     }
 
-    const commitMessage = params.commitMessage?.trim() || preview.defaultCommitMessage;
-    await runGit(params.cwd, withPathspec(["add", "-A"], scopedPaths), overrides);
+    const fallbackCommitMessage = defaultCommitMessage(fullDiff.files);
+    const commitMessage = params.commitMessage?.trim()
+        || await generateCommitMessage(params.cwd, preview.branch, fallbackCommitMessage, overrides);
+    await runGit(params.cwd, ["add", "-A"], overrides);
     await runGit(params.cwd, ["commit", "-m", commitMessage], overrides);
     const commitSHA = (await runGit(params.cwd, ["rev-parse", "HEAD"], overrides)).trim();
     const branch = (await currentBranch(params.cwd, overrides)) ?? "";

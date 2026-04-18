@@ -2,6 +2,18 @@ import Foundation
 import Observation
 
 @MainActor
+protocol EditorBrowserClient: AnyObject {
+    var haptics: HapticsClient { get }
+    func updateWorkingCopy(text: String, session: OpenDocumentSession) async throws -> OpenDocumentSession
+    func saveTextDocument(
+        session: OpenDocumentSession,
+        text: String,
+        overwriteRemote: Bool
+    ) async throws -> OpenDocumentSession
+    func reloadTextDocument(path: String) async throws -> OpenedTextDocument
+}
+
+@MainActor
 @Observable
 final class EditorViewModel {
     let title: String
@@ -16,11 +28,13 @@ final class EditorViewModel {
     var hasConflict = false
     var shareURL: URL?
 
-    let browser: BrowserViewModel
+    let browser: any EditorBrowserClient
     private let remotePath: String
     private var persistTask: Task<Void, Never>?
 
-    init(browser: BrowserViewModel, remotePath: String, title: String) {
+    var haptics: HapticsClient { browser.haptics }
+
+    init(browser: any EditorBrowserClient, remotePath: String, title: String) {
         self.browser = browser
         self.remotePath = remotePath
         self.title = title
@@ -56,10 +70,13 @@ final class EditorViewModel {
         errorMessage = nil
         do {
             self.session = try await browser.saveTextDocument(session: session, text: text, overwriteRemote: false)
+            haptics.play(.success)
         } catch RemoteFileError.conflict {
             hasConflict = true
+            haptics.play(.warning)
         } catch {
             errorMessage = error.localizedDescription
+            haptics.play(.error)
         }
         isSaving = false
     }
@@ -70,8 +87,10 @@ final class EditorViewModel {
         isSaving = true
         do {
             self.session = try await browser.saveTextDocument(session: session, text: text, overwriteRemote: true)
+            haptics.play(.success)
         } catch {
             errorMessage = error.localizedDescription
+            haptics.play(.error)
         }
         isSaving = false
     }
@@ -84,8 +103,10 @@ final class EditorViewModel {
             text = document.text
             session = document.session
             shareURL = document.localURL
+            haptics.play(.success)
         } catch {
             errorMessage = error.localizedDescription
+            haptics.play(.error)
         }
         isLoading = false
     }

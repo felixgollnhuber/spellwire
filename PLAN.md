@@ -166,7 +166,7 @@ Turn the sync core into a usable iPhone-first Codex interface.
 - thread open, continue, and state refresh flows
 - helper-owned Git status refresh for the selected thread `cwd`
 - thread-header diff pill, structured diff viewer, and latest-agent inline Git actions
-- thread-scoped commit flow for files changed by the current chat, helper-generated drafts, `origin` push, and GitHub-only PR creation when `gh` is authenticated
+- thread-scoped Git status and diff presentation for the current chat, full-worktree commit flow, helper-generated drafts, `origin` push, and GitHub-only PR creation when `gh` is authenticated
 - rename/archive plumbing prepared behind the service layer, with UI wiring following after send/open/interrupt stability
 - multi-thread switching without assuming one desktop-selected thread
 - Liquid Glass visual system for the primary app shell

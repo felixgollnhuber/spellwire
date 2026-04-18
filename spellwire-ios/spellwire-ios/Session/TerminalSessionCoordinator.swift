@@ -17,6 +17,7 @@ final class TerminalSessionCoordinator: TerminalTransportDelegate {
     let identity: SSHDeviceIdentity
     let trustStore: HostTrustStore
     let terminal: GhosttyTerminalController
+    let haptics: HapticsClient
 
     var state: TerminalConnectionState = .idle
     var exitStatus: Int32?
@@ -31,6 +32,7 @@ final class TerminalSessionCoordinator: TerminalTransportDelegate {
         host: HostRecord,
         identity: SSHDeviceIdentity,
         trustStore: HostTrustStore,
+        haptics: HapticsClient,
         context: TerminalSessionContext? = nil
     ) {
         guard let terminal = GhosttyTerminalController() else {
@@ -46,6 +48,7 @@ final class TerminalSessionCoordinator: TerminalTransportDelegate {
         )
         self.identity = identity
         self.trustStore = trustStore
+        self.haptics = haptics
         self.terminal = terminal
         terminal.onWriteToPTY = { [weak self] data in
             self?.transport?.send(data)
@@ -162,12 +165,14 @@ final class TerminalSessionCoordinator: TerminalTransportDelegate {
         pendingHostKeyChallenge = nil
         let reply = pendingTrustReply
         pendingTrustReply = nil
+        haptics.play(approved ? .success : .warning)
         reply?(approved)
     }
 
     func transportDidConnect() {
         state = .connected
         exitStatus = nil
+        haptics.play(.success)
         let size = terminal.sizeForRemote()
         transport?.resize(cols: size.cols, rows: size.rows, pixelSize: size.pixelSize)
     }
@@ -180,6 +185,7 @@ final class TerminalSessionCoordinator: TerminalTransportDelegate {
         transport = nil
         if let error {
             state = .failed(error.localizedDescription)
+            haptics.play(.error)
         } else {
             state = .disconnected
         }
@@ -215,12 +221,14 @@ final class TerminalSessionCoordinator: TerminalTransportDelegate {
                 self.state = .trustPrompt
                 self.pendingHostKeyChallenge = challenge
                 self.pendingTrustReply = reply
+                self.haptics.play(.warning)
             }
             transport.delegate = self
             self.transport = transport
             transport.connect()
         } catch {
             state = .failed(error.localizedDescription)
+            haptics.play(.error)
         }
     }
 }

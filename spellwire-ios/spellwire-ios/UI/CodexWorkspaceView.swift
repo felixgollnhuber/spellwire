@@ -171,7 +171,7 @@ extension CodexWorkspaceView {
         Menu {
             Button {
                 Task {
-                    await service.refreshWorkspace()
+                    await service.refreshWorkspace(userInitiated: true)
                 }
             } label: {
                 Label("Refresh", systemImage: "arrow.clockwise")
@@ -179,7 +179,7 @@ extension CodexWorkspaceView {
 
             Button {
                 Task {
-                    await service.refreshWorkspace(showArchived: !service.showsArchived)
+                    await service.refreshWorkspace(showArchived: !service.showsArchived, userInitiated: true)
                 }
             } label: {
                 Label(
@@ -740,7 +740,12 @@ private extension CodexThreadSummary {
     }
     var isRunning: Bool {
         let normalizedStatus = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return !normalizedStatus.isEmpty && normalizedStatus != "idle" && normalizedStatus != "completed"
+        switch normalizedStatus {
+        case "active", "running", "inprogress":
+            return true
+        default:
+            return false
+        }
     }
 
     var lastUpdatedLabel: String {

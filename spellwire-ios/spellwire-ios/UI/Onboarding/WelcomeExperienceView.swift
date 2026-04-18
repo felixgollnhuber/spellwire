@@ -23,12 +23,19 @@ struct WelcomeExperienceView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var draft = HostEditorDraft()
-    @State private var connectionProbe = HostConnectionProbe()
+    @State private var connectionProbe: HostConnectionProbe
     @State private var isFinishingSetup = false
     @State private var errorMessage: String?
     @State private var copyFeedbackTarget: SetupCopyFeedbackTarget?
     @State private var copyFeedbackGeneration = 0
     @FocusState private var focusedField: HostSetupField?
+    private let haptics: HapticsClient
+
+    init(haptics: HapticsClient? = nil) {
+        let resolvedHaptics = haptics ?? .live
+        self.haptics = resolvedHaptics
+        _connectionProbe = State(initialValue: HostConnectionProbe(haptics: resolvedHaptics))
+    }
 
     var body: some View {
         NavigationStack {
@@ -356,6 +363,7 @@ struct WelcomeExperienceView: View {
     }
 
     private func presentCopyFeedback(for target: SetupCopyFeedbackTarget) {
+        haptics.play(.success)
         copyFeedbackGeneration += 1
         let generation = copyFeedbackGeneration
 
@@ -382,6 +390,7 @@ struct WelcomeExperienceView: View {
             connectionProbe.connect(host: host, identity: appModel.sshIdentity)
         } catch {
             errorMessage = error.localizedDescription
+            haptics.play(.error)
         }
     }
 
@@ -421,9 +430,11 @@ struct WelcomeExperienceView: View {
                         )
                     )
                 }
+                haptics.play(.success)
             } catch {
                 isFinishingSetup = false
                 errorMessage = error.localizedDescription
+                haptics.play(.error)
             }
         }
     }

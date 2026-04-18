@@ -21,8 +21,8 @@ final class AppModel {
     var selectedHostID: HostRecord.ID?
     private var codexServices: [HostRecord.ID: CodexService] = [:]
 
-    init(haptics: HapticsClient = .live) {
-        self.haptics = haptics
+    init(haptics: HapticsClient? = nil) {
+        self.haptics = haptics ?? .live
         do {
             let appDirectories = try AppDirectories()
             self.appDirectories = appDirectories

@@ -57,8 +57,10 @@ struct RemoteFileDetailView: View {
         do {
             shareURL = try await browser.previewURL(path: item.path)
             isSharePresented = true
+            browser.haptics.play(.success)
         } catch {
             errorMessage = error.localizedDescription
+            browser.haptics.play(.error)
         }
         isLoading = false
     }

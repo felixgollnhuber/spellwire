@@ -749,7 +749,7 @@ struct CodexThreadChatView: View {
     }
 
     private func speedLabel(_ speed: String) -> String {
-        speed == "default" ? "Speed" : speed.capitalized
+        speed == "default" ? "Normal" : speed.capitalized
     }
 
     private var sendBackground: Color {

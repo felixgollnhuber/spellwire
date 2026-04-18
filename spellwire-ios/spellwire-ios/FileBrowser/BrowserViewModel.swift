@@ -11,6 +11,7 @@ struct OpenedTextDocument: Sendable {
 @Observable
 final class BrowserViewModel {
     let host: HostRecord
+    let haptics: HapticsClient
 
     var pendingHostKeyChallenge: HostKeyChallenge?
 
@@ -31,9 +32,11 @@ final class BrowserViewModel {
         fileSessionManager: FileSessionManager,
         workingCopyManager: WorkingCopyManager,
         conflictResolver: ConflictResolver,
-        previewStore: PreviewStore
+        previewStore: PreviewStore,
+        haptics: HapticsClient
     ) {
         self.host = host
+        self.haptics = haptics
         self.trustStore = trustStore
         self.fileSessionManager = fileSessionManager
         self.workingCopyManager = workingCopyManager
@@ -52,6 +55,7 @@ final class BrowserViewModel {
             guard let self else { return }
             self.pendingHostKeyChallenge = challenge
             self.pendingTrustReply = reply
+            self.haptics.play(.warning)
         }
     }
 
@@ -71,6 +75,7 @@ final class BrowserViewModel {
         pendingHostKeyChallenge = nil
         let reply = pendingTrustReply
         pendingTrustReply = nil
+        haptics.play(approved ? .success : .warning)
         reply?(approved)
     }
 
@@ -114,12 +119,24 @@ final class BrowserViewModel {
             .appending(path: trimmedName, directoryHint: .isDirectory)
             .path(percentEncoded: false)
 
-        try await fileSystem.createDirectory(path: folderPath)
+        do {
+            try await fileSystem.createDirectory(path: folderPath)
+            haptics.play(.success)
+        } catch {
+            haptics.play(.error)
+            throw error
+        }
     }
 
     func delete(paths: [String]) async throws {
-        for path in paths {
-            try await fileSystem.delete(path: path)
+        do {
+            for path in paths {
+                try await fileSystem.delete(path: path)
+            }
+            haptics.play(.success)
+        } catch {
+            haptics.play(.error)
+            throw error
         }
     }
 
@@ -241,3 +258,5 @@ final class BrowserViewModel {
 private final class BrowserChallengeRelay {
     var handler: ((HostKeyChallenge, @escaping (Bool) -> Void) -> Void)?
 }
+
+extension BrowserViewModel: EditorBrowserClient {}
