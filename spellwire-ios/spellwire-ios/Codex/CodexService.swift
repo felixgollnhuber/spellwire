@@ -22,6 +22,8 @@ final class CodexService {
     var isLoadingBranches = false
     var pendingHostKeyChallenge: HostKeyChallenge?
     var errorMessage: String?
+    private(set) var runningThreadIDs = Set<String>()
+    private(set) var unreadThreadIDs = Set<String>()
 
     private let trustStore: HostTrustStore
     private let client: HelperRPCClient
@@ -72,10 +74,12 @@ final class CodexService {
         do {
             helperStatus = try await client.request(method: "helper.status", params: EmptyParams())
             projects = try await client.request(method: "projects.list", params: EmptyParams())
-            threads = try await client.request(
+            let fetchedThreads: [CodexThreadSummary] = try await client.request(
                 method: "threads.list",
                 params: ThreadsQuery(projectID: nil, query: nil, archived: showsArchived, limit: nil)
             )
+            threads = fetchedThreads
+            reconcileThreadIndicators(using: fetchedThreads)
             lastWorkspaceRefreshAt = .now
             errorMessage = nil
         } catch {
@@ -111,6 +115,7 @@ final class CodexService {
 
     func prepareToOpenThread(_ thread: CodexThreadSummary) {
         selectedThread = thread
+        unreadThreadIDs.remove(thread.id)
         threadRefreshTask?.cancel()
         if threadDetail?.thread.id != thread.id {
             threadDetail = nil
@@ -168,6 +173,8 @@ final class CodexService {
                     sandboxPolicy: CodexSandboxPolicy(type: "dangerFullAccess")
                 )
             )
+            runningThreadIDs.insert(selectedThread.id)
+            unreadThreadIDs.remove(selectedThread.id)
 
             if var updatedDetail = threadDetail, updatedDetail.thread.id == selectedThread.id {
                 let currentRuntime = updatedDetail.runtime
@@ -206,6 +213,7 @@ final class CodexService {
                 params: TurnInterruptRequest(threadID: selectedThread.id, turnID: turnID)
             )
             threadDetail?.activeTurnID = nil
+            runningThreadIDs.remove(selectedThread.id)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -332,6 +340,24 @@ final class CodexService {
         !threadsForProject(projectID: project.id, matching: query).isEmpty
     }
 
+    func isThreadSelected(_ thread: CodexThreadSummary) -> Bool {
+        selectedThread?.id == thread.id
+    }
+
+    func isThreadRunning(_ thread: CodexThreadSummary) -> Bool {
+        if runningThreadIDs.contains(thread.id) {
+            return true
+        }
+        if selectedThread?.id == thread.id, threadDetail?.activeTurnID != nil {
+            return true
+        }
+        return threadHasActiveStatus(thread)
+    }
+
+    func hasUnreadActivity(_ thread: CodexThreadSummary) -> Bool {
+        unreadThreadIDs.contains(thread.id) && !isThreadSelected(thread) && !isThreadRunning(thread)
+    }
+
     private func loadThread(method: String) async {
         guard let selectedThread else { return }
 
@@ -350,6 +376,11 @@ final class CodexService {
                 if let index = projects.firstIndex(where: { $0.id == detail.project.id }) {
                     projects[index] = detail.project
                 }
+                runningThreadIDs.remove(detail.thread.id)
+                if detail.activeTurnID != nil || threadHasActiveStatus(detail.thread) {
+                    runningThreadIDs.insert(detail.thread.id)
+                }
+                unreadThreadIDs.remove(detail.thread.id)
             }
             await loadModelsIfNeeded()
             await refreshBranches()
@@ -440,11 +471,23 @@ final class CodexService {
                 delta: params?["delta"]?.stringValue ?? ""
             )
         case "turn/started":
+            if let threadID {
+                runningThreadIDs.insert(threadID)
+                unreadThreadIDs.remove(threadID)
+            }
             if threadID == selectedThread?.id {
                 threadDetail?.activeTurnID = params?["turn"]?.objectValue?["id"]?.stringValue
             }
             scheduleWorkspaceRefresh()
         case "turn/completed":
+            if let threadID {
+                runningThreadIDs.remove(threadID)
+                if threadID == selectedThread?.id {
+                    unreadThreadIDs.remove(threadID)
+                } else {
+                    unreadThreadIDs.insert(threadID)
+                }
+            }
             if threadID == selectedThread?.id {
                 threadDetail?.activeTurnID = nil
                 scheduleThreadReconciliation()
@@ -656,6 +699,27 @@ final class CodexService {
             guard !Task.isCancelled else { return }
             await self.refreshSelectedThread()
         }
+    }
+
+    private func reconcileThreadIndicators(using fetchedThreads: [CodexThreadSummary]) {
+        let knownThreadIDs = Set(fetchedThreads.map(\.id))
+        runningThreadIDs = Set(fetchedThreads.filter(threadHasActiveStatus).map(\.id))
+        if let selectedThread, threadDetail?.activeTurnID != nil {
+            runningThreadIDs.insert(selectedThread.id)
+        }
+
+        unreadThreadIDs = unreadThreadIDs
+            .intersection(knownThreadIDs)
+            .subtracting(runningThreadIDs)
+
+        if let selectedThread {
+            unreadThreadIDs.remove(selectedThread.id)
+        }
+    }
+
+    private func threadHasActiveStatus(_ thread: CodexThreadSummary) -> Bool {
+        let normalizedStatus = thread.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !normalizedStatus.isEmpty && normalizedStatus != "idle" && normalizedStatus != "completed"
     }
 
     private func joinedContentText(from value: JSONValue?) -> String {

@@ -15,6 +15,7 @@ struct CodexThreadChatView: View {
     let workingCopyManager: WorkingCopyManager
     let conflictResolver: ConflictResolver
     let previewStore: PreviewStore
+    let haptics: HapticsClient
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var composerText = ""
@@ -49,7 +50,8 @@ struct CodexThreadChatView: View {
         fileSessionManager: FileSessionManager,
         workingCopyManager: WorkingCopyManager,
         conflictResolver: ConflictResolver,
-        previewStore: PreviewStore
+        previewStore: PreviewStore,
+        haptics: HapticsClient
     ) {
         self.service = service
         self.thread = thread
@@ -62,6 +64,7 @@ struct CodexThreadChatView: View {
         self.workingCopyManager = workingCopyManager
         self.conflictResolver = conflictResolver
         self.previewStore = previewStore
+        self.haptics = haptics
         _attachmentStager = State(initialValue: ChatAttachmentStager(host: host, identity: identity, trustStore: trustStore))
     }
 
@@ -139,7 +142,7 @@ struct CodexThreadChatView: View {
                         .background(Color.black.opacity(0.001))
                 }
                 .refreshable {
-                    await service.refreshSelectedThread()
+                    await service.refreshSelectedThread(userInitiated: true)
                 }
                 .task(id: thread.id) {
                     service.prepareToOpenThread(thread)
@@ -217,6 +220,7 @@ struct CodexThreadChatView: View {
                 }
             case .failure(let error):
                 service.errorMessage = error.localizedDescription
+                haptics.play(.error)
             }
         }
         .alert("Preview Port", isPresented: $showingPreviewPortPrompt) {
@@ -237,6 +241,7 @@ struct CodexThreadChatView: View {
                         host: host,
                         identity: identity,
                         trustStore: trustStore,
+                        haptics: haptics,
                         context: TerminalSessionContext(
                             title: "Terminal",
                             workingDirectory: currentDetail?.runtime.cwd ?? thread.cwd,
@@ -253,7 +258,8 @@ struct CodexThreadChatView: View {
                             fileSessionManager: fileSessionManager,
                             workingCopyManager: workingCopyManager,
                             conflictResolver: conflictResolver,
-                            previewStore: previewStore
+                            previewStore: previewStore,
+                            haptics: haptics
                         ),
                         initialPathOverride: currentDetail?.runtime.cwd ?? thread.cwd
                     )
@@ -263,6 +269,7 @@ struct CodexThreadChatView: View {
                         identity: identity,
                         trustStore: trustStore,
                         defaultScheme: browserDefaultScheme,
+                        haptics: haptics,
                         title: "Preview Browser",
                         tunnelPortOverride: port
                     )
@@ -568,6 +575,7 @@ struct CodexThreadChatView: View {
         guard let cwd = currentDetail?.project.cwd ?? currentDetail?.runtime.cwd else { return }
         guard let port = Int(previewPortDraft), (1...65535).contains(port) else {
             service.errorMessage = "Preview port must be between 1 and 65535."
+            haptics.play(.error)
             return
         }
 
@@ -575,8 +583,10 @@ struct CodexThreadChatView: View {
             try projectPreviewPortStore.setPreviewPort(port, hostID: host.id, cwd: cwd)
             previewPort = port
             activeSheet = .preview(port: port)
+            haptics.play(.success)
         } catch {
             service.errorMessage = error.localizedDescription
+            haptics.play(.error)
         }
     }
 
@@ -615,6 +625,7 @@ struct CodexThreadChatView: View {
             return ComposerAttachment(localURL: url, previewData: data)
         } catch {
             service.errorMessage = error.localizedDescription
+            haptics.play(.error)
             return nil
         }
     }
@@ -652,6 +663,7 @@ struct CodexThreadChatView: View {
             attachments = []
         } catch {
             service.errorMessage = error.localizedDescription
+            haptics.play(.error)
         }
     }
 

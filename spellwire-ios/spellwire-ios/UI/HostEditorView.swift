@@ -81,6 +81,7 @@ struct HostEditorView: View {
     let workingCopyManager: WorkingCopyManager
     let conflictResolver: ConflictResolver
     let previewStore: PreviewStore
+    let haptics: HapticsClient
     let onDeleteHost: (() -> Void)?
     let onResetEverything: (() -> Void)?
     let onSave: (HostEditorDraft) -> Void
@@ -97,6 +98,7 @@ struct HostEditorView: View {
         workingCopyManager: WorkingCopyManager,
         conflictResolver: ConflictResolver,
         previewStore: PreviewStore,
+        haptics: HapticsClient,
         onDeleteHost: (() -> Void)? = nil,
         onResetEverything: (() -> Void)? = nil,
         onSave: @escaping (HostEditorDraft) -> Void
@@ -112,10 +114,11 @@ struct HostEditorView: View {
         self.workingCopyManager = workingCopyManager
         self.conflictResolver = conflictResolver
         self.previewStore = previewStore
+        self.haptics = haptics
         self.onDeleteHost = onDeleteHost
         self.onResetEverything = onResetEverything
         self.onSave = onSave
-        _service = State(initialValue: host.map { CodexService(host: $0, identity: identity, trustStore: trustStore) })
+        _service = State(initialValue: host.map { CodexService(host: $0, identity: identity, trustStore: trustStore, haptics: haptics) })
     }
 
     var body: some View {
@@ -158,10 +161,12 @@ struct HostEditorView: View {
                 Section("Spellwire Key") {
                     Button("Copy Public Key") {
                         UIPasteboard.general.string = publicKey
+                        haptics.play(.success)
                     }
 
                     Button("Copy Setup Command") {
                         UIPasteboard.general.string = authorizedKeysInstallCommand
+                        haptics.play(.success)
                     }
 
                     Button("Share Setup Command") {
@@ -186,7 +191,8 @@ struct HostEditorView: View {
                             TerminalSessionView(
                                 host: host,
                                 identity: identity,
-                                trustStore: trustStore
+                                trustStore: trustStore,
+                                haptics: haptics
                             )
                         } label: {
                             ToolRow(
@@ -205,7 +211,8 @@ struct HostEditorView: View {
                                     fileSessionManager: fileSessionManager,
                                     workingCopyManager: workingCopyManager,
                                     conflictResolver: conflictResolver,
-                                    previewStore: previewStore
+                                    previewStore: previewStore,
+                                    haptics: haptics
                                 )
                             )
                         } label: {
@@ -221,7 +228,8 @@ struct HostEditorView: View {
                                 host: host,
                                 identity: identity,
                                 trustStore: trustStore,
-                                defaultScheme: browserDefaultScheme
+                                defaultScheme: browserDefaultScheme,
+                                haptics: haptics
                             )
                         } label: {
                             ToolRow(
@@ -260,7 +268,7 @@ struct HostEditorView: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .refreshable {
-                await service?.refreshWorkspace()
+                await service?.refreshWorkspace(userInitiated: true)
             }
             .task(id: host?.id) {
                 guard let service, service.projects.isEmpty, service.threads.isEmpty else { return }

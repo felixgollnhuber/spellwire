@@ -4,6 +4,7 @@ import Observation
 @MainActor
 @Observable
 final class AppModel {
+    let haptics: HapticsClient
     let appDirectories: AppDirectories
     let hostStore: HostStore
     let identityStore: SSHIdentityStore
@@ -20,7 +21,8 @@ final class AppModel {
     var selectedHostID: HostRecord.ID?
     private var codexServices: [HostRecord.ID: CodexService] = [:]
 
-    init() {
+    init(haptics: HapticsClient = .live) {
+        self.haptics = haptics
         do {
             let appDirectories = try AppDirectories()
             self.appDirectories = appDirectories
@@ -98,7 +100,7 @@ final class AppModel {
             return existing
         }
 
-        let service = CodexService(host: host, identity: sshIdentity, trustStore: trustStore)
+        let service = CodexService(host: host, identity: sshIdentity, trustStore: trustStore, haptics: haptics)
         codexServices[host.id] = service
         return service
     }

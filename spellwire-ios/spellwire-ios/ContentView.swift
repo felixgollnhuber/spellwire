@@ -5,7 +5,7 @@ struct ContentView: View {
 
     var body: some View {
         if appModel.hosts.isEmpty {
-            WelcomeExperienceView()
+            WelcomeExperienceView(haptics: appModel.haptics)
         } else {
             WorkspaceShellView()
         }
@@ -38,8 +38,10 @@ private struct WorkspaceShellView: View {
             Button("Delete", role: .destructive) {
                 do {
                     try appModel.deleteHost(id: host.id)
+                    appModel.haptics.play(.success)
                 } catch {
                     errorMessage = error.localizedDescription
+                    appModel.haptics.play(.error)
                 }
                 hostPendingDeletion = nil
             }
@@ -53,8 +55,10 @@ private struct WorkspaceShellView: View {
             Button("Reset", role: .destructive) {
                 do {
                     try appModel.resetEverything()
+                    appModel.haptics.play(.success)
                 } catch {
                     errorMessage = error.localizedDescription
+                    appModel.haptics.play(.error)
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -74,14 +78,17 @@ private struct WorkspaceShellView: View {
                 workingCopyManager: appModel.workingCopyManager,
                 conflictResolver: appModel.conflictResolver,
                 previewStore: appModel.previewStore,
+                haptics: appModel.haptics,
                 onDeleteHost: presentation.host == nil ? nil : { hostPendingDeletion = presentation.host },
                 onResetEverything: presentation.host == nil ? nil : { showingResetConfirmation = true }
             ) { draft in
                 do {
                     _ = try appModel.saveHost(from: draft, existingID: presentation.host?.id)
+                    appModel.haptics.play(.success)
                     hostEditor = nil
                 } catch {
                     errorMessage = error.localizedDescription
+                    appModel.haptics.play(.error)
                 }
             }
         }

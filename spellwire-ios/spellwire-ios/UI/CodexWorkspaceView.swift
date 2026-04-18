@@ -13,6 +13,7 @@ struct CodexWorkspaceView: View {
     let workingCopyManager: WorkingCopyManager
     let conflictResolver: ConflictResolver
     let previewStore: PreviewStore
+    let haptics: HapticsClient
     let onSelectHost: (HostRecord) -> Void
     let onCreateHost: () -> Void
     let onEditHost: () -> Void
@@ -50,7 +51,7 @@ struct CodexWorkspaceView: View {
             }
         }
         .refreshable {
-            await service.refreshWorkspace()
+            await service.refreshWorkspace(userInitiated: true)
         }
         .task(id: host.id) {
             if service.projects.isEmpty && service.threads.isEmpty {
@@ -71,7 +72,8 @@ struct CodexWorkspaceView: View {
                 fileSessionManager: fileSessionManager,
                 workingCopyManager: workingCopyManager,
                 conflictResolver: conflictResolver,
-                previewStore: previewStore
+                previewStore: previewStore,
+                haptics: haptics
             )
         }
         .onChange(of: service.projects.map(\.id)) { _, projectIDs in
@@ -276,7 +278,11 @@ extension CodexWorkspaceView {
                             service.prepareToOpenThread(thread)
                             pendingThread = thread
                         } label: {
-                            CompactThreadRow(thread: thread)
+                            CompactThreadRow(
+                                thread: thread,
+                                isSelected: service.isThreadSelected(thread),
+                                indicator: threadIndicator(for: thread)
+                            )
                         }
                         .buttonStyle(.plain)
                         .transition(
@@ -306,6 +312,7 @@ extension CodexWorkspaceView {
                 collapsedProjectIDs.insert(projectID)
             }
         }
+        haptics.play(.selection)
     }
 
     private func createThread(in project: CodexProject) {
@@ -322,6 +329,16 @@ extension CodexWorkspaceView {
                 }
             }
         }
+    }
+
+    private func threadIndicator(for thread: CodexThreadSummary) -> ThreadRowIndicator {
+        if service.isThreadRunning(thread) {
+            return .running
+        }
+        if service.hasUnreadActivity(thread) {
+            return .unread
+        }
+        return .none
     }
 }
 
@@ -381,12 +398,16 @@ private struct ProjectSectionHeader: View {
 
 private struct CompactThreadRow: View {
     let thread: CodexThreadSummary
+    let isSelected: Bool
+    let indicator: ThreadRowIndicator
 
     var body: some View {
         HStack(spacing: 12) {
+            ThreadIndicatorView(indicator: indicator)
+
             Text(thread.rowTitle)
-                .font(.spellwireBody(17, weight: thread.isRunning ? .semibold : .medium))
-                .foregroundStyle(.white.opacity(thread.isRunning ? 0.98 : 0.88))
+                .font(.spellwireBody(17, weight: isSelected ? .semibold : .medium))
+                .foregroundStyle(.white.opacity(isSelected ? 0.98 : 0.88))
                 .lineLimit(1)
                 .truncationMode(.tail)
 
@@ -397,13 +418,42 @@ private struct CompactThreadRow: View {
                 .foregroundStyle(Color.white.opacity(0.48))
                 .lineLimit(1)
         }
-        .padding(.horizontal, thread.isRunning ? 14 : 0)
+        .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(thread.isRunning ? Color.white.opacity(0.08) : .clear)
+                .fill(isSelected ? Color.white.opacity(0.08) : .clear)
         )
+    }
+}
+
+private enum ThreadRowIndicator {
+    case none
+    case running
+    case unread
+}
+
+private struct ThreadIndicatorView: View {
+    let indicator: ThreadRowIndicator
+
+    var body: some View {
+        ZStack {
+            switch indicator {
+            case .none:
+                Color.clear
+            case .running:
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .tint(.white.opacity(0.82))
+                    .scaleEffect(0.72)
+            case .unread:
+                Circle()
+                    .fill(Color.green.opacity(0.95))
+                    .frame(width: 8, height: 8)
+            }
+        }
+        .frame(width: 14, height: 14)
     }
 }
 
@@ -688,7 +738,6 @@ private extension CodexThreadSummary {
             .filter { !$0.isEmpty }
         return candidates.first ?? "Untitled Thread"
     }
-
     var isRunning: Bool {
         let normalizedStatus = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return !normalizedStatus.isEmpty && normalizedStatus != "idle" && normalizedStatus != "completed"

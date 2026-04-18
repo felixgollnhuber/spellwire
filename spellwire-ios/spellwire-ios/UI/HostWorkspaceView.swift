@@ -23,8 +23,10 @@ struct HostWorkspaceView: View {
                     workingCopyManager: appModel.workingCopyManager,
                     conflictResolver: appModel.conflictResolver,
                     previewStore: appModel.previewStore,
+                    haptics: appModel.haptics,
                     onSelectHost: { host in
                         appModel.selectedHostID = host.id
+                        appModel.haptics.play(.confirmation)
                     },
                     onCreateHost: onCreateHost,
                     onEditHost: {
