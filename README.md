@@ -230,3 +230,4 @@ The local file is gitignored so personal signing data stays out of the public re
 ## License
 
 Spellwire is being built as an `AGPL-3.0-only` open-source project. Keep the repository docs and release artifacts consistent with that license policy.
+The full license text lives in [`LICENSE`](./LICENSE).

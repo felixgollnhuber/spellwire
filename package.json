@@ -2,6 +2,7 @@
   "name": "spellwire",
   "version": "0.1.0",
   "description": "Spellwire macOS helper and iPhone client scaffold",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "bin": {
     "spellwire": "dist/src/cli.js"
