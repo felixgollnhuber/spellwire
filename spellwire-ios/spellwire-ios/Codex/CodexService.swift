@@ -83,10 +83,11 @@ final class CodexService {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPrompt.isEmpty else { return }
 
+        let pendingID = "local:\(UUID().uuidString)"
         if threadDetail?.thread.id == selectedThread.id {
             threadDetail?.timeline.append(
                 CodexTimelineItem(
-                    id: "local:\(UUID().uuidString)",
+                    id: pendingID,
                     turnID: selectedThread.lastTurnID ?? "pending",
                     kind: "userMessage",
                     title: "You",
@@ -104,8 +105,13 @@ final class CodexService {
                 params: TurnPromptRequest(threadID: selectedThread.id, prompt: trimmedPrompt)
             )
             threadDetail?.activeTurnID = mutation.turnID
+            scheduleThreadRefresh()
+            scheduleWorkspaceRefresh()
             errorMessage = nil
         } catch {
+            if let index = threadDetail?.timeline.firstIndex(where: { $0.id == pendingID }) {
+                threadDetail?.timeline.remove(at: index)
+            }
             errorMessage = error.localizedDescription
         }
     }
@@ -226,6 +232,13 @@ final class CodexService {
         let threadID = params?["threadId"]?.stringValue
 
         switch method {
+        case "item/started":
+            if threadID == selectedThread?.id {
+                mergeStartedItem(
+                    item: params?["item"],
+                    turnID: params?["turnId"]?.stringValue
+                )
+            }
         case "item/agentMessage/delta":
             mergeDelta(
                 threadID: threadID,
@@ -279,7 +292,7 @@ final class CodexService {
         case "turn/completed":
             if threadID == selectedThread?.id {
                 threadDetail?.activeTurnID = nil
-                scheduleThreadRefresh()
+                scheduleThreadReconciliation()
             }
             scheduleWorkspaceRefresh()
         case "item/completed":
@@ -346,10 +359,34 @@ final class CodexService {
         }
     }
 
+    private func mergeStartedItem(item: JSONValue?, turnID: String?) {
+        guard let item, let itemObject = item.objectValue, var mapped = timelineItem(from: itemObject, turnID: turnID) else {
+            return
+        }
+        mapped.status = "inProgress"
+
+        if let index = threadDetail?.timeline.firstIndex(where: { $0.id == mapped.id }) {
+            threadDetail?.timeline[index] = mapped
+        } else {
+            threadDetail?.timeline.append(mapped)
+        }
+    }
+
     private func timelineItem(from item: [String: JSONValue], turnID: String?) -> CodexTimelineItem? {
         guard let id = item["id"]?.stringValue, let type = item["type"]?.stringValue else { return nil }
 
         switch type {
+        case "userMessage":
+            return CodexTimelineItem(
+                id: id,
+                turnID: turnID ?? "turn",
+                kind: "userMessage",
+                title: "You",
+                body: joinedContentText(from: item["content"]),
+                status: "completed",
+                timestamp: Date().timeIntervalSince1970,
+                source: "canonical"
+            )
         case "agentMessage":
             return CodexTimelineItem(
                 id: id,
@@ -368,6 +405,17 @@ final class CodexService {
                 kind: "plan",
                 title: "Plan",
                 body: item["text"]?.stringValue ?? "",
+                status: "completed",
+                timestamp: Date().timeIntervalSince1970,
+                source: "canonical"
+            )
+        case "reasoning":
+            return CodexTimelineItem(
+                id: id,
+                turnID: turnID ?? "turn",
+                kind: "reasoning",
+                title: "Reasoning",
+                body: joinedStringArray(item["summary"]) + joinedStringArray(item["content"]),
                 status: "completed",
                 timestamp: Date().timeIntervalSince1970,
                 source: "canonical"
@@ -415,6 +463,46 @@ final class CodexService {
             guard let self, !Task.isCancelled else { return }
             await self.refreshSelectedThread()
         }
+    }
+
+    private func scheduleThreadReconciliation() {
+        threadRefreshTask?.cancel()
+        threadRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard let self, !Task.isCancelled else { return }
+            await self.refreshSelectedThread()
+
+            try? await Task.sleep(for: .milliseconds(1500))
+            guard !Task.isCancelled else { return }
+            await self.refreshSelectedThread()
+        }
+    }
+
+    private func joinedContentText(from value: JSONValue?) -> String {
+        guard let parts = value?.arrayValue else { return "" }
+        return parts.compactMap { part in
+            guard let object = part.objectValue else { return nil }
+            switch object["type"]?.stringValue {
+            case "text":
+                return object["text"]?.stringValue
+            case "mention":
+                return "@\(object["name"]?.stringValue ?? "mention")"
+            case "skill":
+                return "$\(object["name"]?.stringValue ?? "skill")"
+            case "image":
+                return "[image]"
+            default:
+                return nil
+            }
+        }
+        .joined(separator: "\n")
+    }
+
+    private func joinedStringArray(_ value: JSONValue?) -> String {
+        guard let entries = value?.arrayValue else { return "" }
+        return entries.compactMap(\.stringValue)
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
     }
 }
 
