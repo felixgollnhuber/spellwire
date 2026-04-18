@@ -1,4 +1,3 @@
-import Shimmer
 import SwiftUI
 
 private struct SkeletonBlock: View {
@@ -8,35 +7,32 @@ private struct SkeletonBlock: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(Color(uiColor: .secondarySystemFill))
+            .fill(Color(uiColor: .tertiarySystemFill))
             .frame(width: width, height: height)
-            .shimmering()
+            .opacity(0.9)
     }
 }
 
 struct RemoteFilesLoadingHeader: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SkeletonBlock(width: nil, height: 42, cornerRadius: 12)
-
+        VStack(alignment: .leading, spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 14) {
-                    SkeletonBlock(width: 44, height: 18, cornerRadius: 4)
-                    SkeletonBlock(width: 68, height: 18, cornerRadius: 4)
-                    SkeletonBlock(width: 56, height: 18, cornerRadius: 4)
-                    SkeletonBlock(width: 60, height: 18, cornerRadius: 4)
+                    SkeletonBlock(width: 44, height: 16, cornerRadius: 4)
+                    SkeletonBlock(width: 68, height: 16, cornerRadius: 4)
+                    SkeletonBlock(width: 56, height: 16, cornerRadius: 4)
                 }
                 .padding(.horizontal, 16)
             }
 
             HStack {
-                SkeletonBlock(width: 72, height: 12, cornerRadius: 4)
+                SkeletonBlock(width: 64, height: 10, cornerRadius: 4)
                 Spacer()
-                SkeletonBlock(width: 96, height: 12, cornerRadius: 4)
+                SkeletonBlock(width: 84, height: 10, cornerRadius: 4)
             }
             .padding(.horizontal, 16)
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .background(.bar)
         .overlay(alignment: .bottom) {
             Divider()
@@ -81,52 +77,28 @@ struct RemoteFilesFolderSkeleton: View {
 
 struct RemoteEditorSkeleton: View {
     var body: some View {
-        VStack(spacing: 0) {
-            VStack {
-                SkeletonBlock(width: nil, height: 42, cornerRadius: 12)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-            }
-            .background(.bar)
-            .overlay(alignment: .bottom) {
-                Divider()
-            }
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(0..<18, id: \.self) { index in
-                        SkeletonBlock(width: CGFloat(120 + ((index * 37) % 160)), height: 15, cornerRadius: 4)
-                    }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(0..<18, id: \.self) { index in
+                    SkeletonBlock(width: CGFloat(120 + ((index * 37) % 160)), height: 15, cornerRadius: 4)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
             }
-            .background(Color(uiColor: .secondarySystemBackground))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
         }
+        .background(Color(uiColor: .secondarySystemBackground))
     }
 }
 
 struct RemotePreviewSkeleton: View {
     var body: some View {
-        VStack(spacing: 0) {
-            VStack {
-                SkeletonBlock(width: nil, height: 42, cornerRadius: 12)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-            }
-            .background(.bar)
-            .overlay(alignment: .bottom) {
-                Divider()
-            }
-
-            VStack(spacing: 18) {
-                SkeletonBlock(width: nil, height: 18, cornerRadius: 5)
-                SkeletonBlock(width: nil, height: 420, cornerRadius: 18)
-                SkeletonBlock(width: 180, height: 14, cornerRadius: 4)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(Color(uiColor: .systemBackground))
+        VStack(spacing: 18) {
+            SkeletonBlock(width: nil, height: 18, cornerRadius: 5)
+            SkeletonBlock(width: nil, height: 420, cornerRadius: 18)
+            SkeletonBlock(width: 180, height: 14, cornerRadius: 4)
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color(uiColor: .systemBackground))
     }
 }

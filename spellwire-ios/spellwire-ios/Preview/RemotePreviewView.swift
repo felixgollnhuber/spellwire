@@ -27,21 +27,8 @@ struct RemotePreviewView: View {
         }
         .navigationTitle(item.name)
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if previewURL == nil, errorMessage == nil {
-                EmptyView()
-            } else {
-                VStack {
-                    RemoteFilesSearchField(text: $searchText, prompt: "Search all files", onSubmit: submitSearch)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                }
-                .background(.bar)
-                .overlay(alignment: .bottom) {
-                    Divider()
-                }
-            }
-        }
+        .searchable(text: $searchText, prompt: "Search all files")
+        .onSubmit(of: .search, submitSearch)
         .navigationDestination(item: $submittedSearch) { request in
             RemoteFilesSearchResultsView(
                 browser: browser,

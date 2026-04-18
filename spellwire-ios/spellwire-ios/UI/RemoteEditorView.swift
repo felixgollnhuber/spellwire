@@ -30,21 +30,8 @@ struct RemoteEditorView: View {
         }
         .navigationTitle(viewModel.title)
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if viewModel.isLoading {
-                EmptyView()
-            } else {
-                VStack {
-                    RemoteFilesSearchField(text: $searchText, prompt: "Search all files", onSubmit: submitSearch)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                }
-                .background(.bar)
-                .overlay(alignment: .bottom) {
-                    Divider()
-                }
-            }
-        }
+        .searchable(text: $searchText, prompt: "Search all files")
+        .onSubmit(of: .search, submitSearch)
         .navigationDestination(item: $submittedSearch) { request in
             RemoteFilesSearchResultsView(
                 browser: viewModel.browser,

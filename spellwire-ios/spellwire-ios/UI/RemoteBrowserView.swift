@@ -100,6 +100,8 @@ struct RemoteFolderView: View {
         }
         .navigationTitle(isSelecting ? selectionTitle : title)
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, prompt: "Search all files")
+        .onSubmit(of: .search, submitSearch)
         .safeAreaInset(edge: .top, spacing: 0) {
             if isLoading && items.isEmpty {
                 EmptyView()
@@ -253,9 +255,6 @@ struct RemoteFolderView: View {
 
     private var controlsHeader: some View {
         VStack(alignment: .leading, spacing: 10) {
-            RemoteFilesSearchField(text: $searchText, prompt: "Search all files", onSubmit: submitSearch)
-                .padding(.horizontal, 16)
-
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 14) {
                     ForEach(BrowserFilter.allCases) { browseFilter in

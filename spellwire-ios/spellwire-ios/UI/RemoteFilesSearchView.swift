@@ -5,38 +5,6 @@ struct RemoteFilesSearchRequest: Identifiable, Hashable {
     var id: String { query }
 }
 
-struct RemoteFilesSearchField: View {
-    @Binding var text: String
-
-    let prompt: String
-    let onSubmit: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-
-            TextField(prompt, text: $text)
-                .submitLabel(.search)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .onSubmit(onSubmit)
-
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Color(uiColor: .secondarySystemFill), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-}
-
 struct RemoteFilesSearchResultsView: View {
     let browser: BrowserViewModel
     let searchRootPath: String
@@ -83,22 +51,20 @@ struct RemoteFilesSearchResultsView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $query, prompt: "Search all files")
+        .onSubmit(of: .search, submitSearch)
         .safeAreaInset(edge: .top, spacing: 0) {
             if isLoading && results.isEmpty {
                 EmptyView()
             } else {
-                VStack(spacing: 10) {
-                    RemoteFilesSearchField(text: $query, prompt: "Search all files", onSubmit: submitSearch)
-
-                    HStack {
-                        Text(statusText)
-                        Spacer()
-                        Text(searchRootPath)
-                            .lineLimit(1)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text(statusText)
+                    Spacer()
+                    Text(searchRootPath)
+                        .lineLimit(1)
                 }
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(.bar)

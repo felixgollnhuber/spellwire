@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 private enum HostSetupField: Hashable {
+    case name
     case host
     case port
     case username
@@ -187,6 +188,20 @@ struct WelcomeExperienceView: View {
         VStack(alignment: .leading, spacing: 22) {
             SpellwireGlassPanel {
                 VStack(spacing: 0) {
+                    HostSetupRow(
+                        title: "Name",
+                        symbol: "textformat",
+                        text: $draft.nickname,
+                        keyboardType: .default,
+                        textContentType: .nickname,
+                        submitLabel: .next,
+                        focusedField: $focusedField,
+                        field: .name,
+                        isSecure: false
+                    )
+
+                    WelcomeFieldDivider()
+
                     HostSetupRow(
                         title: "Host",
                         symbol: "server.rack",
@@ -489,6 +504,8 @@ private struct HostSetupRow: View {
 
     private func moveToNextField() {
         switch field {
+        case .name:
+            focusedField.wrappedValue = .host
         case .host:
             focusedField.wrappedValue = .port
         case .port:
