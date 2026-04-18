@@ -2,6 +2,7 @@ export type HelperMethod =
     | "helper.status"
     | "projects.list"
     | "threads.list"
+    | "threads.create"
     | "threads.open"
     | "threads.read"
     | "models.list"
@@ -203,6 +204,10 @@ export interface ThreadsListParams {
     query?: string | null;
     archived?: boolean | null;
     limit?: number | null;
+}
+
+export interface ThreadCreateParams {
+    cwd: string;
 }
 
 export interface TurnPromptParams {

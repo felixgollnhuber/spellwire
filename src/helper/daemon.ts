@@ -9,6 +9,7 @@ import type {
     CodexThreadDetail,
     CodexThreadSummary,
     DesktopOpenRequest,
+    ThreadCreateParams,
     HelperEventEnvelope,
     HelperFailureResponseEnvelope,
     HelperRequestEnvelope,
@@ -240,6 +241,8 @@ export class SpellwireDaemon {
                 return this.projectsList();
             case "threads.list":
                 return this.threadsList(request.params as unknown as ThreadsListParams);
+            case "threads.create":
+                return this.threadCreate(request.params as unknown as ThreadCreateParams);
             case "threads.open":
                 return this.threadDetail(String((request.params as unknown as { threadID?: string; threadId?: string }).threadID ?? (request.params as unknown as { threadID?: string; threadId?: string }).threadId ?? ""));
             case "threads.read":
@@ -299,6 +302,21 @@ export class SpellwireDaemon {
         return threads
             .map((thread) => threadToSummary(thread as unknown as Parameters<typeof threadToSummary>[0], archived))
             .sort((left, right) => right.updatedAt - left.updatedAt);
+    }
+
+    private async threadCreate(params: ThreadCreateParams): Promise<CodexThreadSummary> {
+        if (!params.cwd) {
+            throw new Error("cwd is required.");
+        }
+
+        const response = await this.appServer.request<{ thread: RawThread }>("thread/start", {
+            cwd: params.cwd,
+        });
+
+        return threadToSummary(
+            response.thread as unknown as Parameters<typeof threadToSummary>[0],
+            false,
+        );
     }
 
     private async threadDetail(threadID: string, resume = true): Promise<CodexThreadDetail> {

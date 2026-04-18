@@ -2,15 +2,11 @@ import SwiftUI
 
 struct RemoteEditorView: View {
     @State private var viewModel: EditorViewModel
-    let searchRootPath: String
 
     @State private var isSharePresented = false
-    @State private var searchText = ""
-    @State private var submittedSearch: RemoteFilesSearchRequest?
 
-    init(viewModel: EditorViewModel, searchRootPath: String) {
+    init(viewModel: EditorViewModel) {
         _viewModel = State(initialValue: viewModel)
-        self.searchRootPath = searchRootPath
     }
 
     var body: some View {
@@ -30,15 +26,6 @@ struct RemoteEditorView: View {
         }
         .navigationTitle(viewModel.title)
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, prompt: "Search all files")
-        .onSubmit(of: .search, submitSearch)
-        .navigationDestination(item: $submittedSearch) { request in
-            RemoteFilesSearchResultsView(
-                browser: viewModel.browser,
-                searchRootPath: searchRootPath,
-                initialQuery: request.query
-            )
-        }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button("Reload") {
@@ -102,11 +89,5 @@ struct RemoteEditorView: View {
                 ActivityView(activityItems: [shareURL])
             }
         }
-    }
-
-    private func submitSearch() {
-        let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedQuery.isEmpty else { return }
-        submittedSearch = RemoteFilesSearchRequest(query: trimmedQuery)
     }
 }

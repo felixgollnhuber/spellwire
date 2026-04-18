@@ -13,6 +13,11 @@ private enum SetupCopyFeedbackTarget {
     case command
 }
 
+private struct WelcomeSetupStep: Identifiable {
+    let id: Int
+    let title: String
+}
+
 struct WelcomeExperienceView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -139,19 +144,17 @@ struct WelcomeExperienceView: View {
     private var setupInstructionsContent: some View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("1. Enable Remote Login on your Mac.")
-                Text("2. Install the helper from npm and run `spellwire up`.")
-                Text("3. Run the setup command on your Mac, or add this public key manually.")
+                ForEach(setupSteps) { step in
+                    WelcomeSetupStepRow(step: step)
+                }
             }
-            .font(.spellwireBody(14, weight: .medium))
-            .foregroundStyle(SpellwirePalette.secondaryForeground)
             .spellwireBlurRiseOnAppear()
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
                     setupCopyButton(
                         target: .key,
-                        title: "Copy Key",
+                        title: "Key",
                         systemImage: "doc.on.doc"
                     ) {
                         UIPasteboard.general.string = appModel.publicKeyOpenSSH
@@ -159,7 +162,7 @@ struct WelcomeExperienceView: View {
 
                     setupCopyButton(
                         target: .command,
-                        title: "Copy Command",
+                        title: "Command",
                         systemImage: "terminal"
                     ) {
                         UIPasteboard.general.string = authorizedKeysInstallCommand
@@ -170,7 +173,7 @@ struct WelcomeExperienceView: View {
 
             SpellwireActionNavigationLink(
                 destination: setupInputScreen,
-                variant: .primary,
+                variant: .secondary,
                 size: .xl,
                 fullWidth: true
             ) {
@@ -184,9 +187,19 @@ struct WelcomeExperienceView: View {
         }
     }
 
+    private var setupSteps: [WelcomeSetupStep] {
+        [
+            WelcomeSetupStep(id: 1, title: "Enable Remote Login on your Mac."),
+            WelcomeSetupStep(id: 2, title: "Install Tailscale on your Mac and iPhone if you want to connect outside your local network."),
+            WelcomeSetupStep(id: 3, title: "Sign in to Tailscale on both devices and confirm your Mac is reachable."),
+            WelcomeSetupStep(id: 4, title: "Install the helper from npm and run `spellwire up`."),
+            WelcomeSetupStep(id: 5, title: "Run the setup command on your Mac, or add this public key manually."),
+        ]
+    }
+
     private var setupInputContent: some View {
         VStack(alignment: .leading, spacing: 22) {
-            SpellwireGlassPanel {
+            WelcomeSetupCard {
                 VStack(spacing: 0) {
                     HostSetupRow(
                         title: "Name",
@@ -259,7 +272,7 @@ struct WelcomeExperienceView: View {
             }
 
             SpellwireActionButton(
-                variant: .primary,
+                variant: .secondary,
                 size: .xl,
                 fullWidth: true,
                 isLoading: connectionProbe.state == .connecting || connectionProbe.state == .trustPrompt,
@@ -464,6 +477,8 @@ private struct WelcomeAppIcon: View {
 }
 
 private struct HostSetupRow: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let title: String
     let symbol: String
     @Binding var text: String
@@ -479,7 +494,7 @@ private struct HostSetupRow: View {
             Image(systemName: symbol)
                 .font(.system(size: 18, weight: .semibold))
                 .frame(width: 22)
-                .foregroundStyle(SpellwirePalette.accent)
+                .foregroundStyle(colorScheme == .dark ? .white : .black)
 
             Group {
                 if isSecure {
@@ -512,6 +527,69 @@ private struct HostSetupRow: View {
             focusedField.wrappedValue = .username
         case .username:
             focusedField.wrappedValue = nil
+        }
+    }
+}
+
+private struct WelcomeSetupCard<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    private let cornerRadius: CGFloat = 30
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            content
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(WelcomeSetupCardChrome(cornerRadius: cornerRadius))
+    }
+}
+
+private struct WelcomeSetupCardChrome: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+
+            content
+                .glassEffect(.regular.interactive(), in: shape)
+                .overlay {
+                    shape.strokeBorder(.primary.opacity(0.10), lineWidth: 1)
+                }
+        } else {
+            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+
+            content
+                .background {
+                    shape.fill(.thinMaterial)
+                }
+                .overlay {
+                    shape.strokeBorder(.primary.opacity(0.10), lineWidth: 1)
+                }
+        }
+    }
+}
+
+private struct WelcomeSetupStepRow: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    let step: WelcomeSetupStep
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(step.id)")
+                .font(.spellwireBody(13, weight: .semibold))
+                .foregroundStyle(SpellwirePalette.foreground)
+                .frame(width: 28, height: 28)
+                .background(SpellwirePalette.panelFill(for: colorScheme), in: Circle())
+
+            Text(step.title)
+                .font(.spellwireBody(14, weight: .medium))
+                .foregroundStyle(SpellwirePalette.secondaryForeground)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 3)
         }
     }
 }

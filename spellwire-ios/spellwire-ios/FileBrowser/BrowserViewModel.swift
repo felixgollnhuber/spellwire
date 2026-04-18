@@ -164,9 +164,7 @@ final class BrowserViewModel {
 
     func openTextDocument(path: String) async throws -> OpenedTextDocument {
         let resolvedPath = try await fileSystem.canonicalize(path: path)
-        guard let documentKind = FileClassifier.editorKind(for: resolvedPath) else {
-            throw RemoteFileError.unsupportedFile(resolvedPath)
-        }
+        let documentKind = FileClassifier.editorKind(for: resolvedPath) ?? .plainText
 
         let data = try await fileSystem.readFile(path: resolvedPath)
         guard let text = String(data: data, encoding: .utf8) else {

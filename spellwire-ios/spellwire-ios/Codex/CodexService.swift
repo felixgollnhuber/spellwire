@@ -4,6 +4,8 @@ import Observation
 @MainActor
 @Observable
 final class CodexService {
+    private static let workspaceStaleAfter: TimeInterval = 12
+
     let host: HostRecord
 
     var helperStatus: HelperStatusSnapshot?
@@ -26,6 +28,7 @@ final class CodexService {
     private var pendingTrustReply: ((Bool) -> Void)?
     private var listRefreshTask: Task<Void, Never>?
     private var threadRefreshTask: Task<Void, Never>?
+    private var lastWorkspaceRefreshAt: Date?
 
     init(host: HostRecord, identity: SSHDeviceIdentity, trustStore: HostTrustStore) {
         self.host = host
@@ -57,6 +60,12 @@ final class CodexService {
             showsArchived = showArchived
         }
 
+        if shouldInvalidateWorkspaceSnapshot {
+            helperStatus = nil
+            projects = []
+            threads = []
+        }
+
         isLoadingList = true
         defer { isLoadingList = false }
 
@@ -67,6 +76,7 @@ final class CodexService {
                 method: "threads.list",
                 params: ThreadsQuery(projectID: nil, query: nil, archived: showsArchived, limit: nil)
             )
+            lastWorkspaceRefreshAt = .now
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -76,6 +86,26 @@ final class CodexService {
     func open(_ thread: CodexThreadSummary) async {
         selectedThread = thread
         await loadThread(method: "threads.open")
+    }
+
+    func createThread(in project: CodexProject) async -> CodexThreadSummary? {
+        do {
+            let created: CodexThreadSummary = try await client.request(
+                method: "threads.create",
+                params: ThreadCreateRequest(cwd: project.cwd)
+            )
+            if let existingIndex = threads.firstIndex(where: { $0.id == created.id }) {
+                threads[existingIndex] = created
+            } else {
+                threads.insert(created, at: 0)
+            }
+            errorMessage = nil
+            scheduleWorkspaceRefresh()
+            return created
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
     }
 
     func refreshSelectedThread() async {
@@ -571,6 +601,16 @@ final class CodexService {
         }
     }
 
+    private var shouldInvalidateWorkspaceSnapshot: Bool {
+        guard hasWorkspaceSnapshot else { return false }
+        guard let lastWorkspaceRefreshAt else { return true }
+        return Date().timeIntervalSince(lastWorkspaceRefreshAt) >= Self.workspaceStaleAfter
+    }
+
+    private var hasWorkspaceSnapshot: Bool {
+        helperStatus != nil || !projects.isEmpty || !threads.isEmpty
+    }
+
     private func scheduleThreadRefresh() {
         threadRefreshTask?.cancel()
         threadRefreshTask = Task { [weak self] in
@@ -636,6 +676,10 @@ private struct ThreadsQuery: Codable {
 
 private struct ThreadSelectionRequest: Codable {
     let threadID: String
+}
+
+private struct ThreadCreateRequest: Codable {
+    let cwd: String
 }
 
 private struct TurnPromptRequest: Codable {
