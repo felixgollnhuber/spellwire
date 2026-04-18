@@ -236,12 +236,7 @@ struct HostBrowserView: View {
     }
 
     var body: some View {
-        ZStack {
-            WebView(coordinator.page)
-                .background(Color(uiColor: .systemBackground))
-
-            overlay
-        }
+        browserContent
         .navigationTitle(coordinator.host.nickname)
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -273,25 +268,22 @@ struct HostBrowserView: View {
     }
 
     @ViewBuilder
-    private var overlay: some View {
-        switch coordinator.state {
-        case .idle, .preparing:
-            ProgressView("Preparing Browser…")
-                .padding(.horizontal, 18)
-                .padding(.vertical, 14)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        case .failed(let message) where coordinator.page.url == nil:
+    private var browserContent: some View {
+        if coordinator.requestedURL != nil || coordinator.page.url != nil {
+            WebView(coordinator.page)
+                .background(Color(uiColor: .systemBackground))
+        } else {
+            switch coordinator.state {
+            case .failed(let message):
             ContentUnavailableView(
                 "Couldn’t Open Browser",
                 systemImage: "globe.badge.chevron.backward",
                 description: Text(message)
             )
             .padding(.horizontal, 24)
-        default:
-            if coordinator.page.isLoading && coordinator.page.url == nil {
-                ProgressView()
-                    .padding(16)
-                    .background(.regularMaterial, in: Circle())
+            default:
+                ProgressView("Preparing Browser…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
