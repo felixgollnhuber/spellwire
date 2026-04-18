@@ -1,61 +1,81 @@
-//
-//  ContentView.swift
-//  spellwire-ios
-//
-//  Created by Felix Gollnhuber on 18.04.26.
-//
-
 import SwiftUI
-import SwiftData
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @Environment(AppModel.self) private var appModel
+    @State private var hostEditor: HostEditorPresentation?
+    @State private var errorMessage: String?
 
     var body: some View {
         NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
+            HostListView(selection: Bindable(appModel).selectedHostID) {
+                hostEditor = .create
+            } onEdit: { host in
+                hostEditor = .edit(host)
+            } onDelete: { offsets in
+                do {
+                    try appModel.deleteHosts(at: offsets)
+                } catch {
+                    errorMessage = error.localizedDescription
                 }
-                .onDelete(perform: deleteItems)
             }
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
                 ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
+                    Button {
+                        hostEditor = .create
+                    } label: {
+                        Label("Add Host", systemImage: "plus")
                     }
+                }
+
+                ToolbarItem {
+                    Button {
+                        if let selectedHost = appModel.selectedHost {
+                            hostEditor = .edit(selectedHost)
+                        }
+                    } label: {
+                        Label("Edit Host", systemImage: "slider.horizontal.3")
+                    }
+                    .disabled(appModel.selectedHost == nil)
                 }
             }
         } detail: {
-            Text("Select an item")
-        }
-    }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
+            if let selectedHost = appModel.selectedHost {
+                NavigationStack {
+                    HostWorkspaceView(host: selectedHost)
+                }
+            } else {
+                ContentUnavailableView(
+                    "No Hosts Yet",
+                    systemImage: "desktopcomputer.trianglebadge.exclamationmark",
+                    description: Text("Add a host to start wiring terminal, file browser, and browser flows.")
+                )
             }
+        }
+        .sheet(item: $hostEditor) { presentation in
+            HostEditorView(
+                title: presentation.title,
+                draft: HostEditorDraft(host: presentation.host, password: presentation.host.map { appModel.password(for: $0.id) } ?? "")
+            ) { draft in
+                do {
+                    _ = try appModel.saveHost(from: draft, existingID: presentation.host?.id)
+                    hostEditor = nil
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+        .alert("Could Not Save Host", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
         }
     }
 }
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
+        .environment(AppModel.preview)
 }

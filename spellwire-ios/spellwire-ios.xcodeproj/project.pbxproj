@@ -6,10 +6,16 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		EBAA01012F938000000231ED /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02012F938000000231ED /* NIOCore */; };
+		EBAA01022F938000000231ED /* NIOPosix in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02022F938000000231ED /* NIOPosix */; };
+		EBAA01032F938000000231ED /* NIOSSH in Frameworks */ = {isa = PBXBuildFile; productRef = EBAA02032F938000000231ED /* NIOSSH */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
-		EBFFC3B62F9379D1000231ED /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
-		EBFFC3B72F9379D1000231ED /* Signing.local.xcconfig.example */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Signing.local.xcconfig.example"; sourceTree = "<group>"; };
 		EBFFC3A32F9379D0000231ED /* spellwire-ios.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "spellwire-ios.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		EBFFC3B62F9379D1000231ED /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		EBFFC3B72F9379D1000231ED /* Signing.local.xcconfig.example */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.local.xcconfig.example; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -38,6 +44,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EBAA01012F938000000231ED /* NIOCore in Frameworks */,
+				EBAA01022F938000000231ED /* NIOPosix in Frameworks */,
+				EBAA01032F938000000231ED /* NIOSSH in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -77,6 +86,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = EBFFC3B12F9379D1000231ED /* Build configuration list for PBXNativeTarget "spellwire-ios" */;
 			buildPhases = (
+				EBAA00012F938000000231ED /* Build Ghostty VT */,
 				EBFFC39F2F9379D0000231ED /* Sources */,
 				EBFFC3A02F9379D0000231ED /* Frameworks */,
 				EBFFC3A12F9379D0000231ED /* Resources */,
@@ -90,6 +100,9 @@
 			);
 			name = "spellwire-ios";
 			packageProductDependencies = (
+				EBAA02012F938000000231ED /* NIOCore */,
+				EBAA02022F938000000231ED /* NIOPosix */,
+				EBAA02032F938000000231ED /* NIOSSH */,
 			);
 			productName = "spellwire-ios";
 			productReference = EBFFC3A32F9379D0000231ED /* spellwire-ios.app */;
@@ -119,6 +132,10 @@
 			);
 			mainGroup = EBFFC39A2F9379D0000231ED;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				EBAA03012F938000000231ED /* XCRemoteSwiftPackageReference "swift-nio" */,
+				EBAA03022F938000000231ED /* XCRemoteSwiftPackageReference "swift-nio-ssh" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = EBFFC3A42F9379D0000231ED /* Products */;
 			projectDirPath = "";
@@ -138,6 +155,31 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		EBAA00012F938000000231ED /* Build Ghostty VT */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(PROJECT_DIR)/Vendor/ghostty",
+				"$(PROJECT_DIR)/Vendor/ghostty-prebuilt",
+				"$(PROJECT_DIR)/Scripts/build-ghostty-vt.sh",
+			);
+			name = "Build Ghostty VT";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(PROJECT_DIR)/Build/ghostty-vt/$(PLATFORM_NAME)/libghostty-vt.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/zsh;
+			shellScript = "\"${PROJECT_DIR}/Scripts/build-ghostty-vt.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		EBFFC39F2F9379D0000231ED /* Sources */ = {
@@ -159,8 +201,15 @@
 				CODE_SIGN_ENTITLEMENTS = "spellwire-ios/spellwire_ios.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = HDMNFGUUL4;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/ghostty-vt-headers",
+				);
 				INFOPLIST_FILE = "spellwire-ios/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = spellwire;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -173,12 +222,22 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Build/ghostty-vt/$(PLATFORM_NAME)",
+				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lghostty-vt",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "xyz.floritzmaier.spellwire-ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "spellwire-ios/App/GhosttyVt-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -194,8 +253,15 @@
 				CODE_SIGN_ENTITLEMENTS = "spellwire-ios/spellwire_ios.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = HDMNFGUUL4;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/ghostty-vt-headers",
+				);
 				INFOPLIST_FILE = "spellwire-ios/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = spellwire;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -208,12 +274,22 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Build/ghostty-vt/$(PLATFORM_NAME)",
+				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lghostty-vt",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "xyz.floritzmaier.spellwire-ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "spellwire-ios/App/GhosttyVt-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -341,6 +417,25 @@
 		};
 /* End XCBuildConfiguration section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		EBAA03012F938000000231ED /* XCRemoteSwiftPackageReference "swift-nio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.98.0;
+			};
+		};
+		EBAA03022F938000000231ED /* XCRemoteSwiftPackageReference "swift-nio-ssh" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio-ssh.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.9.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCConfigurationList section */
 		EBFFC39E2F9379D0000231ED /* Build configuration list for PBXProject "spellwire-ios" */ = {
 			isa = XCConfigurationList;
@@ -361,6 +456,24 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		EBAA02012F938000000231ED /* NIOCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03012F938000000231ED /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIOCore;
+		};
+		EBAA02022F938000000231ED /* NIOPosix */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03012F938000000231ED /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIOPosix;
+		};
+		EBAA02032F938000000231ED /* NIOSSH */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EBAA03022F938000000231ED /* XCRemoteSwiftPackageReference "swift-nio-ssh" */;
+			productName = NIOSSH;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = EBFFC39B2F9379D0000231ED /* Project object */;
 }

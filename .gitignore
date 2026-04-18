@@ -1,5 +1,6 @@
 # macOS
 .DS_Store
+**/.DS_Store
 
 # Xcode user data
 **/xcuserdata/
@@ -11,6 +12,7 @@
 .build/
 DerivedData/
 **/.swiftpm/
+spellwire-ios/Build/
 
 # Local Xcode config overrides
 **/*.local.xcconfig

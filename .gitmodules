@@ -1,0 +1,3 @@
+[submodule "spellwire-ios/Vendor/ghostty"]
+	path = spellwire-ios/Vendor/ghostty
+	url = https://github.com/flybyflo/ghostty.git

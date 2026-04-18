@@ -1,32 +1,13 @@
-//
-//  spellwire_iosApp.swift
-//  spellwire-ios
-//
-//  Created by Felix Gollnhuber on 18.04.26.
-//
-
 import SwiftUI
-import SwiftData
 
 @main
 struct spellwire_iosApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    @State private var appModel = AppModel()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(appModel)
         }
-        .modelContainer(sharedModelContainer)
     }
 }
