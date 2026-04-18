@@ -17,6 +17,7 @@ final class AppModel {
     private(set) var sshIdentity: SSHDeviceIdentity
     private(set) var hosts: [HostRecord] = []
     var selectedHostID: HostRecord.ID?
+    private var codexServices: [HostRecord.ID: CodexService] = [:]
 
     init() {
         do {
@@ -65,6 +66,7 @@ final class AppModel {
         let hostIDs = hosts.map(\.id)
         hosts = []
         selectedHostID = nil
+        codexServices = [:]
 
         try hostStore.save([])
         try trustStore.clearAll()
@@ -86,6 +88,16 @@ final class AppModel {
 
     func clientIdentity(for username: String) throws -> SSHClientIdentity {
         try sshIdentity.clientIdentity(username: username)
+    }
+
+    func codexService(for host: HostRecord) -> CodexService {
+        if let existing = codexServices[host.id], existing.host == host {
+            return existing
+        }
+
+        let service = CodexService(host: host, identity: sshIdentity, trustStore: trustStore)
+        codexServices[host.id] = service
+        return service
     }
 
     func validatedHostRecord(
@@ -173,6 +185,7 @@ final class AppModel {
         for id in hostIDs {
             try trustStore.removeTrust(for: id)
             try fileSessionManager.clearLastVisitedPath(for: id)
+            codexServices[id] = nil
         }
 
         clearCachedHostArtifacts(for: hostIDs)

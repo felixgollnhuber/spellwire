@@ -131,18 +131,7 @@ struct RemoteFilesSearchResultsView: View {
                 RemoteFolderView(
                     viewModel: browser,
                     path: item.path,
-                    title: item.name,
-                    searchRootPath: searchRootPath
-                )
-            } label: {
-                RemoteListItemRow(item: item, isSelecting: false, isSelected: false)
-            }
-            .buttonStyle(.plain)
-        } else if FileClassifier.editorKind(for: item.path) != nil {
-            NavigationLink {
-                RemoteEditorView(
-                    viewModel: EditorViewModel(browser: browser, remotePath: item.path, title: item.name),
-                    searchRootPath: searchRootPath
+                    title: item.name
                 )
             } label: {
                 RemoteListItemRow(item: item, isSelecting: false, isSelected: false)
@@ -150,14 +139,14 @@ struct RemoteFilesSearchResultsView: View {
             .buttonStyle(.plain)
         } else if FileClassifier.isPreviewable(path: item.path) {
             NavigationLink {
-                RemotePreviewView(browser: browser, item: item, searchRootPath: searchRootPath)
+                RemotePreviewView(browser: browser, item: item)
             } label: {
                 RemoteListItemRow(item: item, isSelecting: false, isSelected: false)
             }
             .buttonStyle(.plain)
         } else {
             NavigationLink {
-                RemoteFileDetailView(browser: browser, item: item, searchRootPath: searchRootPath)
+                RemoteEditorView(viewModel: EditorViewModel(browser: browser, remotePath: item.path, title: item.name))
             } label: {
                 RemoteListItemRow(item: item, isSelecting: false, isSelected: false)
             }

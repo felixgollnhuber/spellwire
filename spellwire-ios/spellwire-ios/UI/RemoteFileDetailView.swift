@@ -3,14 +3,11 @@ import SwiftUI
 struct RemoteFileDetailView: View {
     let browser: BrowserViewModel
     let item: RemoteItem
-    let searchRootPath: String
 
     @State private var shareURL: URL?
     @State private var errorMessage: String?
     @State private var isLoading = false
     @State private var isSharePresented = false
-    @State private var searchText = ""
-    @State private var submittedSearch: RemoteFilesSearchRequest?
 
     var body: some View {
         List {
@@ -36,15 +33,6 @@ struct RemoteFileDetailView: View {
         }
         .navigationTitle(item.name)
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, prompt: "Search all files")
-        .onSubmit(of: .search, submitSearch)
-        .navigationDestination(item: $submittedSearch) { request in
-            RemoteFilesSearchResultsView(
-                browser: browser,
-                searchRootPath: searchRootPath,
-                initialQuery: request.query
-            )
-        }
         .alert(
             "File Error",
             isPresented: Binding(
@@ -73,11 +61,5 @@ struct RemoteFileDetailView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
-    }
-
-    private func submitSearch() {
-        let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedQuery.isEmpty else { return }
-        submittedSearch = RemoteFilesSearchRequest(query: trimmedQuery)
     }
 }

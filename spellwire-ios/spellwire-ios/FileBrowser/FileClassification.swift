@@ -78,7 +78,7 @@ enum EditorSyntaxLanguage: String, Sendable {
 
 enum FileClassifier {
     static func utType(for path: String) -> UTType? {
-        let fileExtension = URL(filePath: path).pathExtension
+        let fileExtension = URL(filePath: path).pathExtension.lowercased()
         guard !fileExtension.isEmpty else { return nil }
         return UTType(filenameExtension: fileExtension)
     }
@@ -146,6 +146,11 @@ enum FileClassifier {
     }
 
     static func isPreviewable(path: String) -> Bool {
+        let fileExtension = URL(filePath: path).pathExtension.lowercased()
+        if previewableImageExtensions.contains(fileExtension) || fileExtension == "pdf" {
+            return true
+        }
+
         guard let type = utType(for: path) else { return false }
         return type.conforms(to: .pdf) || type.conforms(to: .image)
     }
@@ -206,6 +211,8 @@ enum FileClassifier {
     private static let imageExtensions: Set<String> = [
         "avif", "bmp", "gif", "heic", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"
     ]
+
+    private static let previewableImageExtensions = imageExtensions.subtracting(["svg"])
 
     private static let archiveExtensions: Set<String> = [
         "7z", "bz2", "gz", "rar", "tar", "tgz", "xz", "zip"

@@ -20,77 +20,15 @@ private struct WorkspaceShellView: View {
     @State private var showingResetConfirmation = false
 
     var body: some View {
-        NavigationSplitView {
-            HostListView(selection: Bindable(appModel).selectedHostID) {
+        NavigationStack {
+            HostWorkspaceView {
                 hostEditor = .create
-            } onEdit: { host in
+            } onEditHost: { host in
                 hostEditor = .edit(host)
-            } onDelete: { offsets in
-                do {
-                    try appModel.deleteHosts(at: offsets)
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
             } onDeleteHost: { host in
                 hostPendingDeletion = host
             } onResetEverything: {
                 showingResetConfirmation = true
-            }
-            .toolbar {
-                ToolbarItem {
-                    Button {
-                        hostEditor = .create
-                    } label: {
-                        Label("Add Host", systemImage: "plus")
-                    }
-                }
-
-                ToolbarItem {
-                    Button {
-                        if let selectedHost = appModel.selectedHost {
-                            hostEditor = .edit(selectedHost)
-                        }
-                    } label: {
-                        Label("Edit Host", systemImage: "slider.horizontal.3")
-                    }
-                    .disabled(appModel.selectedHost == nil)
-                }
-
-                ToolbarItem {
-                    Button(role: .destructive) {
-                        hostPendingDeletion = appModel.selectedHost
-                    } label: {
-                        Label("Delete Host", systemImage: "trash")
-                    }
-                    .disabled(appModel.selectedHost == nil)
-                }
-
-                ToolbarItem {
-                    Button(role: .destructive) {
-                        showingResetConfirmation = true
-                    } label: {
-                        Label("Reset Everything", systemImage: "arrow.counterclockwise")
-                    }
-                    .disabled(appModel.hosts.isEmpty)
-                }
-            }
-        } detail: {
-            if let selectedHost = appModel.selectedHost {
-                NavigationStack {
-                    HostWorkspaceView(host: selectedHost) {
-                        hostEditor = .edit(selectedHost)
-                    } onDeleteHost: {
-                        hostPendingDeletion = selectedHost
-                    } onResetEverything: {
-                        showingResetConfirmation = true
-                    }
-                }
-            } else {
-                ContentUnavailableView(
-                    "No Hosts Yet",
-                    systemImage: "desktopcomputer.trianglebadge.exclamationmark",
-                    description: Text("Add a host to start wiring terminal, file browser, and browser flows.")
-                )
             }
         }
         .alert("Delete Host?", isPresented: Binding(
@@ -126,8 +64,18 @@ private struct WorkspaceShellView: View {
         .sheet(item: $hostEditor) { presentation in
             HostEditorView(
                 title: presentation.title,
+                host: presentation.host,
                 draft: HostEditorDraft(host: presentation.host),
-                publicKey: appModel.publicKeyOpenSSH
+                publicKey: appModel.publicKeyOpenSSH,
+                identity: appModel.sshIdentity,
+                trustStore: appModel.trustStore,
+                browserDefaultScheme: (try? appModel.browserSettingsStore.load().defaultScheme) ?? BrowserSettings.default.defaultScheme,
+                fileSessionManager: appModel.fileSessionManager,
+                workingCopyManager: appModel.workingCopyManager,
+                conflictResolver: appModel.conflictResolver,
+                previewStore: appModel.previewStore,
+                onDeleteHost: presentation.host == nil ? nil : { hostPendingDeletion = presentation.host },
+                onResetEverything: presentation.host == nil ? nil : { showingResetConfirmation = true }
             ) { draft in
                 do {
                     _ = try appModel.saveHost(from: draft, existingID: presentation.host?.id)
