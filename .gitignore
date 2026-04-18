@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Xcode user data
+**/xcuserdata/
+**/*.xcuserstate
+**/*.xccheckout
+**/*.xcscmblueprint
+
+# Swift / Xcode build outputs
+.build/
+DerivedData/
+**/.swiftpm/
+
+# Local Xcode config overrides
+**/*.local.xcconfig
+**/Local.xcconfig

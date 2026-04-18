@@ -1,0 +1,8 @@
+// Public-safe defaults. Override these in Signing.local.xcconfig on each machine.
+SPELLWIRE_BUNDLE_IDENTIFIER = io.example.spellwire-ios
+SPELLWIRE_DEVELOPMENT_TEAM =
+
+#include? "Signing.local.xcconfig"
+
+PRODUCT_BUNDLE_IDENTIFIER = $(SPELLWIRE_BUNDLE_IDENTIFIER)
+DEVELOPMENT_TEAM = $(SPELLWIRE_DEVELOPMENT_TEAM)
