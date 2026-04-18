@@ -7,17 +7,25 @@ final class CodexService {
     private static let workspaceStaleAfter: TimeInterval = 12
 
     let host: HostRecord
+    let haptics: HapticsClient
 
     var helperStatus: HelperStatusSnapshot?
     var projects: [CodexProject] = []
     var threads: [CodexThreadSummary] = []
     var selectedThread: CodexThreadSummary?
     var threadDetail: CodexThreadDetail?
+    var selectedThreadGitStatus: CodexGitStatus?
+    var selectedThreadGitDiff: CodexGitDiff?
+    var selectedThreadGitCommitPreview: GitCommitPreview?
     var availableModels: [ModelOption] = []
     var availableBranches: [BranchInfo] = []
     var showsArchived = false
     var isLoadingList = false
     var isLoadingThread = false
+    var isLoadingGitStatus = false
+    var isLoadingGitDiff = false
+    var isLoadingGitCommitPreview = false
+    var isExecutingGitCommit = false
     var isLoadingModels = false
     var isLoadingBranches = false
     var pendingHostKeyChallenge: HostKeyChallenge?
@@ -30,11 +38,14 @@ final class CodexService {
     private var pendingTrustReply: ((Bool) -> Void)?
     private var listRefreshTask: Task<Void, Never>?
     private var threadRefreshTask: Task<Void, Never>?
+    private var gitStatusRefreshTask: Task<Void, Never>?
+    private var gitStatusPollingTask: Task<Void, Never>?
     private var lastWorkspaceRefreshAt: Date?
 
-    init(host: HostRecord, identity: SSHDeviceIdentity, trustStore: HostTrustStore) {
+    init(host: HostRecord, identity: SSHDeviceIdentity, trustStore: HostTrustStore, haptics: HapticsClient) {
         self.host = host
         self.trustStore = trustStore
+        self.haptics = haptics
         var challengeHandler: ((HostKeyChallenge, @escaping (Bool) -> Void) -> Void)?
         client = HelperRPCClient(
             host: host,
@@ -47,6 +58,7 @@ final class CodexService {
             guard let self else { return }
             self.pendingHostKeyChallenge = challenge
             self.pendingTrustReply = reply
+            self.haptics.play(.warning)
         }
         client.eventHandler = { [weak self] event in
             self?.handle(event: event)
@@ -57,7 +69,7 @@ final class CodexService {
         await refreshWorkspace()
     }
 
-    func refreshWorkspace(showArchived: Bool? = nil) async {
+    func refreshWorkspace(showArchived: Bool? = nil, userInitiated: Bool = false) async {
         if let showArchived {
             showsArchived = showArchived
         }
@@ -82,8 +94,14 @@ final class CodexService {
             reconcileThreadIndicators(using: fetchedThreads)
             lastWorkspaceRefreshAt = .now
             errorMessage = nil
+            if userInitiated {
+                haptics.play(.success)
+            }
         } catch {
             errorMessage = error.localizedDescription
+            if userInitiated {
+                haptics.play(.error)
+            }
         }
     }
 
@@ -106,9 +124,11 @@ final class CodexService {
             prepareToOpenThread(created)
             errorMessage = nil
             scheduleWorkspaceRefresh()
+            haptics.play(.success)
             return created
         } catch {
             errorMessage = error.localizedDescription
+            haptics.play(.error)
             return nil
         }
     }
@@ -117,19 +137,24 @@ final class CodexService {
         selectedThread = thread
         unreadThreadIDs.remove(thread.id)
         threadRefreshTask?.cancel()
+        gitStatusRefreshTask?.cancel()
         if threadDetail?.thread.id != thread.id {
             threadDetail = nil
         }
+        selectedThreadGitStatus = nil
+        selectedThreadGitDiff = nil
+        selectedThreadGitCommitPreview = nil
         availableBranches = []
     }
 
-    func refreshSelectedThread() async {
-        await loadThread(method: "threads.read")
+    func refreshSelectedThread(userInitiated: Bool = false) async {
+        await loadThread(method: "threads.read", userInitiated: userInitiated)
     }
 
     func send(
         prompt: String,
         attachmentPaths: [String] = [],
+        pendingAttachmentPreviewPaths: [URL] = [],
         model: String? = nil,
         effort: String? = nil,
         serviceTier: String? = nil
@@ -141,6 +166,11 @@ final class CodexService {
         let pendingID = "local:\(UUID().uuidString)"
         var detailSnapshot = threadDetail
         let requestCWD = detailSnapshot?.runtime.cwd
+        let pendingContent = pendingUserMessageContent(
+            prompt: trimmedPrompt,
+            previewPaths: pendingAttachmentPreviewPaths,
+            fallbackPaths: attachmentPaths
+        )
 
         if detailSnapshot?.thread.id == selectedThread.id {
             detailSnapshot?.timeline.append(
@@ -149,7 +179,9 @@ final class CodexService {
                     turnID: selectedThread.lastTurnID ?? "pending",
                     kind: "userMessage",
                     title: "You",
-                    body: pendingUserMessageBody(prompt: trimmedPrompt, attachmentCount: attachmentPaths.count),
+                    body: CodexTimelineContentPart.joinedFallbackText(from: pendingContent),
+                    changedPaths: nil,
+                    content: pendingContent,
                     status: "pending",
                     timestamp: Date().timeIntervalSince1970,
                     source: "canonical"
@@ -194,6 +226,7 @@ final class CodexService {
             scheduleThreadRefresh()
             scheduleWorkspaceRefresh()
             errorMessage = nil
+            haptics.play(.success)
         } catch {
             if var failedDetail = threadDetail,
                let index = failedDetail.timeline.firstIndex(where: { $0.id == pendingID }) {
@@ -201,6 +234,7 @@ final class CodexService {
                 threadDetail = failedDetail
             }
             errorMessage = error.localizedDescription
+            haptics.play(.error)
         }
     }
 
@@ -215,8 +249,10 @@ final class CodexService {
             threadDetail?.activeTurnID = nil
             runningThreadIDs.remove(selectedThread.id)
             errorMessage = nil
+            haptics.play(.success)
         } catch {
             errorMessage = error.localizedDescription
+            haptics.play(.error)
         }
     }
 
@@ -228,8 +264,10 @@ final class CodexService {
                 params: DesktopOpenRequest(threadID: selectedThread.id)
             )
             errorMessage = nil
+            haptics.play(.success)
         } catch {
             errorMessage = error.localizedDescription
+            haptics.play(.error)
         }
     }
 
@@ -299,9 +337,172 @@ final class CodexService {
                 threadDetail?.runtime = currentRuntime
             }
             await refreshSelectedThread()
+            await refreshGitStatus()
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    func beginGitStatusPolling() {
+        gitStatusPollingTask?.cancel()
+        gitStatusPollingTask = Task { [weak self] in
+            while let self, !Task.isCancelled {
+                await self.refreshGitStatus()
+                try? await Task.sleep(for: .seconds(4))
+            }
+        }
+    }
+
+    func stopGitStatusPolling() {
+        gitStatusPollingTask?.cancel()
+        gitStatusPollingTask = nil
+    }
+
+    func refreshGitStatus(reportErrors: Bool = false) async {
+        guard let cwd = currentThreadCWD else {
+            selectedThreadGitStatus = nil
+            selectedThreadGitDiff = nil
+            selectedThreadGitCommitPreview = nil
+            return
+        }
+        let scopedPaths = currentThreadGitPaths
+        guard !scopedPaths.isEmpty else {
+            selectedThreadGitStatus = nil
+            selectedThreadGitDiff = nil
+            selectedThreadGitCommitPreview = nil
+            return
+        }
+
+        isLoadingGitStatus = true
+        defer { isLoadingGitStatus = false }
+
+        do {
+            let status: CodexGitStatus = try await client.request(
+                method: "git.status",
+                params: GitStatusRequest(cwd: cwd, paths: scopedPaths)
+            )
+            selectedThreadGitStatus = status
+            applyGitStatusToRuntime(status)
+            if !status.hasChanges {
+                selectedThreadGitDiff = nil
+                selectedThreadGitCommitPreview = nil
+            }
+        } catch {
+            if reportErrors {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func loadGitDiff(force: Bool = false, reportErrors: Bool = true) async {
+        guard let cwd = currentThreadCWD else { return }
+        let scopedPaths = currentThreadGitPaths
+        guard !scopedPaths.isEmpty else {
+            selectedThreadGitDiff = nil
+            return
+        }
+        if !force, selectedThreadGitDiff?.cwd == cwd {
+            return
+        }
+
+        isLoadingGitDiff = true
+        defer { isLoadingGitDiff = false }
+
+        do {
+            selectedThreadGitDiff = try await client.request(
+                method: "git.diff",
+                params: GitDiffRequest(cwd: cwd, paths: scopedPaths)
+            )
+        } catch {
+            if reportErrors {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func loadGitCommitPreview(force: Bool = false, reportErrors: Bool = true) async {
+        guard let cwd = currentThreadCWD else { return }
+        let scopedPaths = currentThreadGitPaths
+        guard !scopedPaths.isEmpty else {
+            selectedThreadGitCommitPreview = nil
+            return
+        }
+        if !force, selectedThreadGitCommitPreview?.cwd == cwd {
+            return
+        }
+
+        isLoadingGitCommitPreview = true
+        defer { isLoadingGitCommitPreview = false }
+
+        do {
+            selectedThreadGitCommitPreview = try await client.request(
+                method: "git.commit.preview",
+                params: GitCommitPreviewRequest(cwd: cwd, paths: scopedPaths)
+            )
+        } catch {
+            if reportErrors {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    @discardableResult
+    func executeGitCommit(
+        action: GitCommitActionID,
+        commitMessage: String?,
+        prTitle: String? = nil,
+        prBody: String? = nil
+    ) async -> GitCommitResult? {
+        guard let cwd = currentThreadCWD else { return nil }
+        let scopedPaths = currentThreadGitPaths
+        guard !scopedPaths.isEmpty else { return nil }
+
+        isExecutingGitCommit = true
+        defer { isExecutingGitCommit = false }
+
+        do {
+            let result: GitCommitResult = try await client.request(
+                method: "git.commit.execute",
+                params: GitCommitExecuteRequest(
+                    cwd: cwd,
+                    paths: scopedPaths,
+                    action: action,
+                    commitMessage: commitMessage?.nilIfBlank,
+                    prTitle: prTitle?.nilIfBlank,
+                    prBody: prBody?.nilIfBlank
+                )
+            )
+            selectedThreadGitCommitPreview = nil
+            selectedThreadGitDiff = nil
+            await refreshGitStatus(reportErrors: false)
+            if selectedThreadGitStatus?.hasChanges == true {
+                await loadGitDiff(force: true, reportErrors: false)
+            }
+            if var runtime = threadDetail?.runtime {
+                runtime = CodexThreadRuntime(
+                    cwd: runtime.cwd,
+                    model: runtime.model,
+                    modelProvider: runtime.modelProvider,
+                    serviceTier: runtime.serviceTier,
+                    reasoningEffort: runtime.reasoningEffort,
+                    approvalPolicy: runtime.approvalPolicy,
+                    sandbox: runtime.sandbox,
+                    git: CodexGitInfo(
+                        sha: result.commitSHA,
+                        branch: result.branch,
+                        originURL: runtime.git?.originURL
+                    )
+                )
+                threadDetail?.runtime = runtime
+            }
+            errorMessage = nil
+            haptics.play(.success)
+            return result
+        } catch {
+            errorMessage = error.localizedDescription
+            haptics.play(.error)
+            return nil
         }
     }
 
@@ -321,6 +522,7 @@ final class CodexService {
         pendingHostKeyChallenge = nil
         let reply = pendingTrustReply
         pendingTrustReply = nil
+        haptics.play(approved ? .success : .warning)
         reply?(approved)
     }
 
@@ -358,7 +560,7 @@ final class CodexService {
         unreadThreadIDs.contains(thread.id) && !isThreadSelected(thread) && !isThreadRunning(thread)
     }
 
-    private func loadThread(method: String) async {
+    private func loadThread(method: String, userInitiated: Bool = false) async {
         guard let selectedThread else { return }
 
         isLoadingThread = true
@@ -384,9 +586,16 @@ final class CodexService {
             }
             await loadModelsIfNeeded()
             await refreshBranches()
+            await refreshGitStatus()
             errorMessage = nil
+            if userInitiated {
+                haptics.play(.success)
+            }
         } catch {
             errorMessage = error.localizedDescription
+            if userInitiated {
+                haptics.play(.error)
+            }
         }
     }
 
@@ -491,6 +700,7 @@ final class CodexService {
             if threadID == selectedThread?.id {
                 threadDetail?.activeTurnID = nil
                 scheduleThreadReconciliation()
+                scheduleGitStatusRefresh()
             }
             scheduleWorkspaceRefresh()
         case "item/completed":
@@ -505,6 +715,7 @@ final class CodexService {
                 scheduleWorkspaceRefresh()
                 if threadID == selectedThread?.id {
                     scheduleThreadRefresh()
+                    scheduleGitStatusRefresh()
                 }
             }
         }
@@ -537,6 +748,8 @@ final class CodexService {
                     kind: kind,
                     title: title,
                     body: delta,
+                    changedPaths: nil,
+                    content: nil,
                     status: "inProgress",
                     timestamp: Date().timeIntervalSince1970,
                     source: "canonical"
@@ -590,12 +803,15 @@ final class CodexService {
 
         switch type {
         case "userMessage":
+            let content = CodexTimelineContentPart.from(jsonValue: item["content"])
             return CodexTimelineItem(
                 id: id,
                 turnID: turnID ?? "turn",
                 kind: "userMessage",
                 title: "You",
-                body: joinedContentText(from: item["content"]),
+                body: content.map { CodexTimelineContentPart.joinedFallbackText(from: $0) } ?? "",
+                changedPaths: nil,
+                content: content,
                 status: "completed",
                 timestamp: Date().timeIntervalSince1970,
                 source: "canonical"
@@ -607,6 +823,8 @@ final class CodexService {
                 kind: "agentMessage",
                 title: "Codex",
                 body: item["text"]?.stringValue ?? "",
+                changedPaths: nil,
+                content: nil,
                 status: "completed",
                 timestamp: Date().timeIntervalSince1970,
                 source: "canonical"
@@ -618,6 +836,8 @@ final class CodexService {
                 kind: "plan",
                 title: "Plan",
                 body: item["text"]?.stringValue ?? "",
+                changedPaths: nil,
+                content: nil,
                 status: "completed",
                 timestamp: Date().timeIntervalSince1970,
                 source: "canonical"
@@ -629,6 +849,8 @@ final class CodexService {
                 kind: "reasoning",
                 title: "Reasoning",
                 body: joinedStringArray(item["summary"]) + joinedStringArray(item["content"]),
+                changedPaths: nil,
+                content: nil,
                 status: "completed",
                 timestamp: Date().timeIntervalSince1970,
                 source: "canonical"
@@ -640,6 +862,8 @@ final class CodexService {
                 kind: "commandExecution",
                 title: item["command"]?.stringValue ?? "Command",
                 body: item["aggregatedOutput"]?.stringValue ?? "",
+                changedPaths: nil,
+                content: nil,
                 status: "completed",
                 timestamp: Date().timeIntervalSince1970,
                 source: "canonical"
@@ -651,6 +875,8 @@ final class CodexService {
                 kind: "fileChange",
                 title: "File Changes",
                 body: item["changes"]?.arrayValue?.compactMap { $0.objectValue?["path"]?.stringValue }.joined(separator: "\n") ?? "",
+                changedPaths: item["changes"]?.arrayValue?.compactMap { $0.objectValue?["path"]?.stringValue },
+                content: nil,
                 status: "completed",
                 timestamp: Date().timeIntervalSince1970,
                 source: "canonical"
@@ -701,6 +927,15 @@ final class CodexService {
         }
     }
 
+    private func scheduleGitStatusRefresh() {
+        gitStatusRefreshTask?.cancel()
+        gitStatusRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard let self, !Task.isCancelled else { return }
+            await self.refreshGitStatus()
+        }
+    }
+
     private func reconcileThreadIndicators(using fetchedThreads: [CodexThreadSummary]) {
         let knownThreadIDs = Set(fetchedThreads.map(\.id))
         runningThreadIDs = Set(fetchedThreads.filter(threadHasActiveStatus).map(\.id))
@@ -719,33 +954,56 @@ final class CodexService {
 
     private func threadHasActiveStatus(_ thread: CodexThreadSummary) -> Bool {
         let normalizedStatus = thread.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return !normalizedStatus.isEmpty && normalizedStatus != "idle" && normalizedStatus != "completed"
-    }
-
-    private func joinedContentText(from value: JSONValue?) -> String {
-        guard let parts = value?.arrayValue else { return "" }
-        return parts.compactMap { part in
-            guard let object = part.objectValue else { return nil }
-            switch object["type"]?.stringValue {
-            case "text":
-                return object["text"]?.stringValue
-            case "mention":
-                return "@\(object["name"]?.stringValue ?? "mention")"
-            case "skill":
-                return "$\(object["name"]?.stringValue ?? "skill")"
-            case "image", "localImage":
-                return "[image]"
-            default:
-                return nil
-            }
+        switch normalizedStatus {
+        case "active", "running", "inprogress":
+            return true
+        default:
+            return false
         }
-        .joined(separator: "\n")
     }
 
-    private func pendingUserMessageBody(prompt: String, attachmentCount: Int) -> String {
-        let attachmentLines = Array(repeating: "[image]", count: attachmentCount)
-        return ([prompt].filter { !$0.isEmpty } + attachmentLines)
-            .joined(separator: "\n")
+    private func pendingUserMessageContent(
+        prompt: String,
+        previewPaths: [URL],
+        fallbackPaths: [String]
+    ) -> [CodexTimelineContentPart] {
+        var content: [CodexTimelineContentPart] = []
+
+        if !prompt.isEmpty {
+            content.append(.text(prompt))
+        }
+
+        let imagePaths = previewPaths.map(\.path) + Array(fallbackPaths.dropFirst(previewPaths.count))
+        content.append(contentsOf: imagePaths.map(CodexTimelineContentPart.localImage(path:)))
+        return content
+    }
+
+    private var currentThreadCWD: String? {
+        threadDetail?.runtime.cwd ?? selectedThread?.cwd
+    }
+
+    private var currentThreadGitPaths: [String] {
+        guard let detail = threadDetail else { return [] }
+        return CodexGitPresentation.relevantPaths(timeline: detail.timeline)
+    }
+
+    private func applyGitStatusToRuntime(_ status: CodexGitStatus) {
+        guard var runtime = threadDetail?.runtime else { return }
+        runtime = CodexThreadRuntime(
+            cwd: runtime.cwd,
+            model: runtime.model,
+            modelProvider: runtime.modelProvider,
+            serviceTier: runtime.serviceTier,
+            reasoningEffort: runtime.reasoningEffort,
+            approvalPolicy: runtime.approvalPolicy,
+            sandbox: runtime.sandbox,
+            git: CodexGitInfo(
+                sha: runtime.git?.sha,
+                branch: status.branch,
+                originURL: runtime.git?.originURL
+            )
+        )
+        threadDetail?.runtime = runtime
     }
 
     private func joinedStringArray(_ value: JSONValue?) -> String {
@@ -790,6 +1048,30 @@ private struct BranchSwitchRequest: Codable {
     let name: String
 }
 
+private struct GitStatusRequest: Codable {
+    let cwd: String
+    let paths: [String]
+}
+
+private struct GitDiffRequest: Codable {
+    let cwd: String
+    let paths: [String]
+}
+
+private struct GitCommitPreviewRequest: Codable {
+    let cwd: String
+    let paths: [String]
+}
+
+private struct GitCommitExecuteRequest: Codable {
+    let cwd: String
+    let paths: [String]
+    let action: GitCommitActionID
+    let commitMessage: String?
+    let prTitle: String?
+    let prBody: String?
+}
+
 private struct TurnInterruptRequest: Codable {
     let threadID: String
     let turnID: String
@@ -802,4 +1084,11 @@ private struct DesktopOpenRequest: Codable {
 private struct DesktopOpenResponse: Codable {
     let opened: Bool
     let bestEffort: Bool
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }

@@ -21,8 +21,8 @@ Spellwire is not a hosted control plane, does not depend on a relay, and does no
 ## Current State
 
 - The repo now contains a buildable TypeScript helper scaffold at the repo root under `src/` plus npm metadata and tests.
-- `spellwire-ios/` now includes Ed25519 key onboarding, host fingerprint pinning, a shared SSH identity model, and a rudimentary Codex-first workspace for browsing projects and threads, reading history, sending prompts, interrupting turns, and opening a thread on the Mac.
-- The helper-owned sync layer, rollout recovery, desktop handoff, terminal, file manager, and preview flows exist as early implementation scaffolds and are not production-complete yet.
+- `spellwire-ios/` now includes Ed25519 key onboarding, host fingerprint pinning, a shared SSH identity model, and a rudimentary Codex-first workspace for browsing projects and threads, reading history, sending prompts, interrupting turns, opening a thread on the Mac, and surfacing helper-owned Git status, diff, and commit actions for the selected thread `cwd`.
+- The helper-owned sync layer, rollout recovery, desktop handoff, terminal, file manager, preview flows, and new Git working-tree actions exist as early implementations and are not production-complete yet.
 - The current docs must describe that reality honestly.
 
 ## Hard Guardrails
@@ -95,10 +95,12 @@ Agents must preserve this model:
 - Keep Spellwire local-first around the user's Mac. Do not introduce a separate Spellwire service.
 - Build multi-project and multi-thread support from the beginning. The app must not assume a single active project.
 - The file surface is a Finder-like remote manager over SSH and SFTP, not a second full desktop IDE.
+- Git status, diff, commit, push, and PR actions for a thread must stay helper-owned JSON RPC over SSH exec. The iPhone app must not run Git directly or parse human CLI output.
 - The preview browser must use SSH tunnels only. v1 supports both helper-backed preview discovery and manual port entry.
 - The terminal surface must use a pinned `libghostty-vt` revision or vendored snapshot. Do not float to arbitrary latest builds.
 - Keep helper state, session recovery, and desktop handoff logic separate from SwiftUI views.
 - Prefer stable, typed RPC contracts over shell scraping or ad hoc text parsing.
+- v1 Git mutations are scoped to files changed by the current thread, push only to `origin`, and create pull requests only for GitHub remotes with authenticated `gh`.
 - Keep SSH bootstrap commands shell-neutral. Remote helper startup, tmux/session resume, and onboarding snippets must execute correctly even when the account login shell is not POSIX-compatible.
 
 ## Documentation Rule

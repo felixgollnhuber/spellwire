@@ -35,6 +35,8 @@ struct CodexThreadChatView: View {
     @State private var showingPreviewPortPrompt = false
     @State private var previewPortDraft = ""
     @State private var attachmentStager: ChatAttachmentStager
+    @State private var imageResolver: ThreadImageResolver
+    @State private var activeImagePreview: ThreadImagePreview?
     @FocusState private var composerFocused: Bool
 
     private let bottomAnchorID = "thread-bottom-anchor"
@@ -66,6 +68,7 @@ struct CodexThreadChatView: View {
         self.previewStore = previewStore
         self.haptics = haptics
         _attachmentStager = State(initialValue: ChatAttachmentStager(host: host, identity: identity, trustStore: trustStore))
+        _imageResolver = State(initialValue: ThreadImageResolver(host: host, identity: identity, trustStore: trustStore))
     }
 
     var body: some View {
@@ -79,12 +82,35 @@ struct CodexThreadChatView: View {
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 22) {
                                 ForEach(detail.timeline) { item in
-                                    ThreadTimelineRow(
-                                        item: item,
-                                        isExpanded: expansionBinding(for: item),
-                                        isCurrentTurn: item.turnID == detail.activeTurnID
-                                    )
-                                    .id(item.id)
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        ThreadTimelineRow(
+                                            item: item,
+                                            imageResolver: imageResolver,
+                                            isExpanded: expansionBinding(for: item),
+                                            isCurrentTurn: item.turnID == detail.activeTurnID,
+                                            onOpenImage: { preview in
+                                                activeImagePreview = preview
+                                            }
+                                        )
+                                        .id(item.id)
+
+                                        if item.id == inlineGitActionAnchorItemID, let gitStatus {
+                                            ThreadGitInlineActionRow(
+                                                status: gitStatus,
+                                                isCommitLoading: service.isExecutingGitCommit,
+                                                onOpenDiff: {
+                                                    Task {
+                                                        await openGitDiff()
+                                                    }
+                                                },
+                                                onCommit: {
+                                                    Task {
+                                                        await openGitCommitSheet()
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
                                 }
 
                                 Color.clear
@@ -121,6 +147,7 @@ struct CodexThreadChatView: View {
                             hydrateSelections(from: detail)
                             hydratePreviewPort(for: detail.project.cwd)
                             scrollToBottom(with: proxy, animated: false)
+                            service.beginGitStatusPolling()
                         }
                         .onChange(of: timelineSignature) { _, _ in
                             expandActiveToolRows()
@@ -147,12 +174,16 @@ struct CodexThreadChatView: View {
                 .task(id: thread.id) {
                     service.prepareToOpenThread(thread)
                     await service.open(thread)
+                    service.beginGitStatusPolling()
                 }
                 .onChange(of: composerFocused) { _, isFocused in
                     guard isFocused else { return }
                     scrollToBottom(with: proxy, animated: true)
                 }
             }
+        }
+        .onDisappear {
+            service.stopGitStatusPolling()
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -169,7 +200,15 @@ struct CodexThreadChatView: View {
                 }
             }
 
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if let gitStatus, gitStatus.hasChanges {
+                    ThreadGitDiffPillButton(status: gitStatus) {
+                        Task {
+                            await openGitDiff()
+                        }
+                    }
+                }
+
                 Menu {
                     Button("Terminal", systemImage: "terminal") {
                         activeSheet = .terminal
@@ -273,8 +312,15 @@ struct CodexThreadChatView: View {
                         title: "Preview Browser",
                         tunnelPortOverride: port
                     )
+                case .gitDiff:
+                    CodexGitDiffView(service: service, thread: thread)
+                case .gitCommit:
+                    CodexGitCommitSheet(service: service, thread: thread)
                 }
             }
+        }
+        .fullScreenCover(item: $activeImagePreview) { preview in
+            ThreadImageViewer(preview: preview)
         }
         .task {
             await service.loadModelsIfNeeded()
@@ -286,11 +332,25 @@ struct CodexThreadChatView: View {
         return service.threadDetail
     }
 
+    private var gitStatus: CodexGitStatus? {
+        guard service.selectedThread?.id == thread.id else { return nil }
+        return service.selectedThreadGitStatus
+    }
+
     private var timelineSignature: String {
         guard let detail = currentDetail else { return "empty" }
         return detail.timeline
             .map { "\($0.id):\($0.body.count):\($0.status ?? "")" }
             .joined(separator: "|")
+    }
+
+    private var inlineGitActionAnchorItemID: String? {
+        guard let detail = currentDetail else { return nil }
+        return CodexGitPresentation.inlineActionAnchorItemID(
+            timeline: detail.timeline,
+            hasChanges: gitStatus?.hasChanges == true,
+            isThreadIdle: detail.activeTurnID == nil
+        )
     }
 
     private var tmuxSessionName: String {
@@ -590,6 +650,16 @@ struct CodexThreadChatView: View {
         }
     }
 
+    private func openGitDiff() async {
+        activeSheet = .gitDiff
+        await service.loadGitDiff(force: false, reportErrors: true)
+    }
+
+    private func openGitCommitSheet() async {
+        activeSheet = .gitCommit
+        await service.loadGitCommitPreview(force: false, reportErrors: true)
+    }
+
     private func importPhotoItems(_ items: [PhotosPickerItem]) async {
         for item in items {
             if let data = try? await item.loadTransferable(type: Data.self),
@@ -655,6 +725,7 @@ struct CodexThreadChatView: View {
             await service.send(
                 prompt: composerText,
                 attachmentPaths: stagedPaths,
+                pendingAttachmentPreviewPaths: attachments.map(\.localURL),
                 model: resolvedModel?.model,
                 effort: resolvedEffort,
                 serviceTier: resolvedSpeedTier == "default" ? nil : resolvedSpeedTier
@@ -692,18 +763,21 @@ struct CodexThreadChatView: View {
 
 private struct ThreadTimelineRow: View {
     let item: CodexTimelineItem
+    let imageResolver: ThreadImageResolver
     @Binding var isExpanded: Bool
     let isCurrentTurn: Bool
+    let onOpenImage: (ThreadImagePreview) -> Void
 
     var body: some View {
         switch item.kind {
         case "userMessage":
             HStack {
                 Spacer(minLength: 46)
-                Text(item.body)
-                    .font(.body)
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.leading)
+                ThreadUserMessageBubble(
+                    item: item,
+                    imageResolver: imageResolver,
+                    onOpenImage: onOpenImage
+                )
                     .frame(maxWidth: 280, alignment: .leading)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
@@ -782,6 +856,229 @@ private struct ThreadTimelineRow: View {
         }
         .font(.caption2)
         .foregroundStyle(.white.opacity(0.5))
+    }
+}
+
+private struct ThreadUserMessageBubble: View {
+    let item: CodexTimelineItem
+    let imageResolver: ThreadImageResolver
+    let onOpenImage: (ThreadImagePreview) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                switch segment {
+                case .text(let text):
+                    Text(text)
+                        .font(.body)
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.leading)
+                        .textSelection(.enabled)
+                case .image(let part):
+                    ThreadMessageImageThumbnail(
+                        part: part,
+                        resolver: imageResolver,
+                        onOpenImage: onOpenImage
+                    )
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var segments: [ThreadUserMessageSegment] {
+        let content = item.content ?? []
+        guard !content.isEmpty else {
+            return item.body.isEmpty ? [] : [.text(item.body)]
+        }
+
+        var segments: [ThreadUserMessageSegment] = []
+        var textBuffer: [String] = []
+
+        func flushTextBuffer() {
+            let joined = textBuffer
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+            if !joined.isEmpty {
+                segments.append(.text(joined))
+            }
+            textBuffer.removeAll(keepingCapacity: true)
+        }
+
+        for part in content {
+            switch part.type {
+            case "image", "localImage":
+                flushTextBuffer()
+                segments.append(.image(part))
+            default:
+                if let text = part.fallbackText, !text.isEmpty {
+                    textBuffer.append(text)
+                }
+            }
+        }
+
+        flushTextBuffer()
+        return segments
+    }
+}
+
+private enum ThreadUserMessageSegment: Hashable {
+    case text(String)
+    case image(CodexTimelineContentPart)
+}
+
+private struct ThreadMessageImageThumbnail: View {
+    let part: CodexTimelineContentPart
+    let resolver: ThreadImageResolver
+    let onOpenImage: (ThreadImagePreview) -> Void
+
+    @State private var image: UIImage?
+    @State private var hasFailed = false
+
+    var body: some View {
+        Button {
+            guard let image else { return }
+            onOpenImage(ThreadImagePreview(image: image))
+        } label: {
+            Group {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.white.opacity(0.08))
+                        Image(systemName: hasFailed ? "photo.badge.exclamationmark" : "photo")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.72))
+                    }
+                }
+            }
+            .frame(width: 144, height: 108)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(image == nil)
+        .task(id: cacheKey) {
+            await loadImage()
+        }
+    }
+
+    private var cacheKey: String {
+        part.path ?? part.url ?? part.type
+    }
+
+    @MainActor
+    private func loadImage() async {
+        guard image == nil, !hasFailed else { return }
+        if let resolvedImage = await resolver.loadImage(for: part) {
+            image = resolvedImage
+        } else {
+            hasFailed = true
+        }
+    }
+}
+
+private struct ThreadImagePreview: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
+private struct ThreadImageViewer: View {
+    let preview: ThreadImagePreview
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+
+            Image(uiImage: preview.image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(20)
+
+            Button("Done") {
+                dismiss()
+            }
+            .font(.headline)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Color.white.opacity(0.12), in: Capsule(style: .continuous))
+            .padding(.top, 18)
+            .padding(.trailing, 16)
+        }
+    }
+}
+
+private actor ThreadImageResolver {
+    private let fileSystem: SFTPRemoteFileSystem
+    private var cache: [String: Data] = [:]
+
+    init(host: HostRecord, identity: SSHDeviceIdentity, trustStore: HostTrustStore) {
+        fileSystem = try! SFTPRemoteFileSystem(
+            host: host,
+            identity: identity.clientIdentity(username: host.username),
+            trustedHost: trustStore.trustedHost(for: host.id)
+        ) { _, reply in
+            reply(false)
+        }
+    }
+
+    func loadImage(for part: CodexTimelineContentPart) async -> UIImage? {
+        guard let cacheKey = cacheKey(for: part) else { return nil }
+
+        if let cached = cache[cacheKey], let image = UIImage(data: cached) {
+            return image
+        }
+
+        do {
+            let data = try await loadImageData(for: part)
+            cache[cacheKey] = data
+            return UIImage(data: data)
+        } catch {
+            return nil
+        }
+    }
+
+    private func cacheKey(for part: CodexTimelineContentPart) -> String? {
+        switch part.type {
+        case "image":
+            return part.url
+        case "localImage":
+            return part.path
+        default:
+            return nil
+        }
+    }
+
+    private func loadImageData(for part: CodexTimelineContentPart) async throws -> Data {
+        switch part.type {
+        case "image":
+            guard let urlString = part.url, let url = URL(string: urlString) else {
+                throw URLError(.badURL)
+            }
+            let (data, _) = try await URLSession.shared.data(from: url)
+            return data
+        case "localImage":
+            guard let path = part.path, !path.isEmpty else {
+                throw URLError(.fileDoesNotExist)
+            }
+
+            if FileManager.default.fileExists(atPath: path) {
+                return try Data(contentsOf: URL(fileURLWithPath: path))
+            }
+
+            return try await fileSystem.readFile(path: path)
+        default:
+            throw URLError(.unsupportedURL)
+        }
     }
 }
 
@@ -898,6 +1195,8 @@ private enum ThreadToolDestination: Identifiable {
     case terminal
     case files
     case preview(port: Int)
+    case gitDiff
+    case gitCommit
 
     var id: String {
         switch self {
@@ -907,6 +1206,10 @@ private enum ThreadToolDestination: Identifiable {
             return "files"
         case .preview(let port):
             return "preview-\(port)"
+        case .gitDiff:
+            return "git-diff"
+        case .gitCommit:
+            return "git-commit"
         }
     }
 }

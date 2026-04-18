@@ -5,10 +5,17 @@ import type {
     BranchListParams,
     BranchSwitchParams,
     BranchSwitchResult,
+    CodexGitDiff,
+    CodexGitStatus,
     CodexProject,
     CodexThreadDetail,
     CodexThreadSummary,
     DesktopOpenRequest,
+    GitCommitExecuteParams,
+    GitCommitPreview,
+    GitCommitPreviewParams,
+    GitDiffParams,
+    GitStatusParams,
     ThreadCreateParams,
     HelperEventEnvelope,
     HelperFailureResponseEnvelope,
@@ -28,6 +35,7 @@ import { runtimePaths, type RuntimePaths, spellwireVersion, ensureRuntimeDirecto
 import { AppServerClient } from "./app-server-client.js";
 import { DesktopBridge } from "./desktop-bridge.js";
 import { listLocalBranches, switchLocalBranch } from "./git-branches.js";
+import { executeGitCommit, getGitCommitPreview, getGitDiff, getGitStatus } from "./git.js";
 import { JSONLLogger } from "./logger.js";
 import { detailFromThread, mapSandboxPolicy, projectsFromThreads, threadToSummary } from "./mappers.js";
 import { PreviewRegistry } from "./preview-registry.js";
@@ -259,6 +267,14 @@ export class SpellwireDaemon {
                 return this.branchesList(request.params as BranchListParams);
             case "branches.switch":
                 return this.branchesSwitch(request.params as BranchSwitchParams);
+            case "git.status":
+                return this.gitStatus(request.params as GitStatusParams);
+            case "git.diff":
+                return this.gitDiff(request.params as GitDiffParams);
+            case "git.commit.preview":
+                return this.gitCommitPreview(request.params as GitCommitPreviewParams);
+            case "git.commit.execute":
+                return this.gitCommitExecute(request.params as GitCommitExecuteParams);
             case "desktop.open":
                 return this.desktopOpen(request.params as unknown as DesktopOpenRequest);
             case "previews.list":
@@ -459,6 +475,34 @@ export class SpellwireDaemon {
             cwd: params.cwd,
             currentBranch: await switchLocalBranch(params.cwd, params.name),
         };
+    }
+
+    private async gitStatus(params: GitStatusParams): Promise<CodexGitStatus> {
+        if (!params.cwd) {
+            throw new Error("cwd is required.");
+        }
+        return getGitStatus(params.cwd, { paths: params.paths ?? [] });
+    }
+
+    private async gitDiff(params: GitDiffParams): Promise<CodexGitDiff> {
+        if (!params.cwd) {
+            throw new Error("cwd is required.");
+        }
+        return getGitDiff(params.cwd, { paths: params.paths ?? [] });
+    }
+
+    private async gitCommitPreview(params: GitCommitPreviewParams): Promise<GitCommitPreview> {
+        if (!params.cwd) {
+            throw new Error("cwd is required.");
+        }
+        return getGitCommitPreview(params.cwd, { paths: params.paths ?? [] });
+    }
+
+    private async gitCommitExecute(params: GitCommitExecuteParams) {
+        if (!params.cwd) {
+            throw new Error("cwd is required.");
+        }
+        return executeGitCommit(params);
     }
 
     private broadcast(event: HelperEventEnvelope): void {

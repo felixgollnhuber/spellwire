@@ -11,6 +11,10 @@ export type HelperMethod =
     | "turns.interrupt"
     | "branches.list"
     | "branches.switch"
+    | "git.status"
+    | "git.diff"
+    | "git.commit.preview"
+    | "git.commit.execute"
     | "desktop.open"
     | "previews.list";
 
@@ -112,12 +116,21 @@ export interface CodexThreadSummary {
     lastTurnID: string | null;
 }
 
+export type CodexTimelineContentPart =
+    | { type: "text"; text: string }
+    | { type: "mention"; name: string; path?: string | null }
+    | { type: "skill"; name: string; path?: string | null }
+    | { type: "image"; url: string }
+    | { type: "localImage"; path: string };
+
 export interface CodexTimelineItem {
     id: string;
     turnID: string;
     kind: string;
     title: string;
     body: string;
+    changedPaths?: string[] | null;
+    content?: CodexTimelineContentPart[] | null;
     status: string | null;
     timestamp: number | null;
     source: "canonical" | "recovery";
@@ -133,6 +146,92 @@ export interface CodexGitInfo {
     sha: string | null;
     branch: string | null;
     originURL: string | null;
+}
+
+export interface CodexGitStatus {
+    cwd: string;
+    isRepository: boolean;
+    branch: string | null;
+    hasChanges: boolean;
+    additions: number;
+    deletions: number;
+    hasStaged: boolean;
+    hasUnstaged: boolean;
+    hasUntracked: boolean;
+    pushRemote: string | null;
+    canPush: boolean;
+    canCreatePR: boolean;
+    defaultBranch: string | null;
+    blockingReason: string | null;
+}
+
+export interface GitDiffLine {
+    kind: "context" | "addition" | "deletion" | "hunk" | "meta";
+    text: string;
+    oldLineNumber: number | null;
+    newLineNumber: number | null;
+}
+
+export interface GitDiffHunk {
+    header: string;
+    lines: GitDiffLine[];
+}
+
+export interface GitDiffFile {
+    path: string;
+    oldPath: string | null;
+    newPath: string | null;
+    status: "added" | "modified" | "deleted" | "renamed" | "copied" | "typeChanged" | "unmerged" | "unknown";
+    additions: number;
+    deletions: number;
+    isBinary: boolean;
+    hunks: GitDiffHunk[];
+}
+
+export interface CodexGitDiff {
+    cwd: string;
+    branch: string | null;
+    additions: number;
+    deletions: number;
+    files: GitDiffFile[];
+}
+
+export type GitCommitActionID = "commit" | "commitAndPush" | "commitPushAndPR";
+
+export interface GitCommitAction {
+    id: GitCommitActionID;
+    title: string;
+    enabled: boolean;
+    reason: string | null;
+}
+
+export interface GitCommitPreview {
+    cwd: string;
+    branch: string | null;
+    pushRemote: string | null;
+    defaultBranch: string | null;
+    defaultCommitMessage: string;
+    defaultPRTitle: string;
+    defaultPRBody: string;
+    actions: GitCommitAction[];
+    warnings: string[];
+}
+
+export interface GitCommitExecuteParams {
+    cwd: string;
+    paths?: string[] | null;
+    action: GitCommitActionID;
+    commitMessage?: string | null;
+    prTitle?: string | null;
+    prBody?: string | null;
+}
+
+export interface GitCommitResult {
+    cwd: string;
+    commitSHA: string;
+    branch: string;
+    pushed: boolean;
+    prURL: string | null;
 }
 
 export interface CodexThreadRuntime {
@@ -190,6 +289,21 @@ export interface BranchSwitchParams {
 export interface BranchSwitchResult {
     cwd: string;
     currentBranch: string;
+}
+
+export interface GitStatusParams {
+    cwd: string;
+    paths?: string[] | null;
+}
+
+export interface GitDiffParams {
+    cwd: string;
+    paths?: string[] | null;
+}
+
+export interface GitCommitPreviewParams {
+    cwd: string;
+    paths?: string[] | null;
 }
 
 export type TurnInputItem =

@@ -1,21 +1,10 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { BranchInfo } from "../shared/protocol.js";
-
-const execFileAsync = promisify(execFile);
-
-async function ensureGitRepository(cwd: string): Promise<void> {
-    await execFileAsync("git", ["rev-parse", "--is-inside-work-tree"], { cwd });
-}
+import { ensureGitRepository, runGit } from "./git.js";
 
 export async function listLocalBranches(cwd: string): Promise<BranchInfo[]> {
     await ensureGitRepository(cwd);
 
-    const { stdout } = await execFileAsync(
-        "git",
-        ["for-each-ref", "--format=%(refname:short)\t%(HEAD)", "refs/heads"],
-        { cwd },
-    );
+    const stdout = await runGit(cwd, ["for-each-ref", "--format=%(refname:short)\t%(HEAD)", "refs/heads"]);
 
     return stdout
         .split("\n")
@@ -38,10 +27,9 @@ export async function listLocalBranches(cwd: string): Promise<BranchInfo[]> {
 
 export async function switchLocalBranch(cwd: string, name: string): Promise<string> {
     await ensureGitRepository(cwd);
-    await execFileAsync("git", ["checkout", "--quiet", name], { cwd });
+    await runGit(cwd, ["checkout", "--quiet", name]);
 
-    const { stdout } = await execFileAsync("git", ["branch", "--show-current"], { cwd });
-    const currentBranch = stdout.trim();
+    const currentBranch = (await runGit(cwd, ["branch", "--show-current"])).trim();
     if (!currentBranch) {
         throw new Error("Git checkout completed but no current branch was reported.");
     }

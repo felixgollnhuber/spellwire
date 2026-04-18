@@ -18,7 +18,7 @@ It assumes:
 - Milestone 2 is scaffolded in code: the repo now ships a buildable TypeScript `spellwire` helper with the public CLI contract, LaunchAgent plumbing, daemon socket bridge, logs, doctor/status flows, and JSON RPC transport.
 - Milestone 3 is partially implemented in `spellwire-ios/`: the iPhone app now generates and stores an Ed25519 key, exports the OpenSSH public key, and pins host fingerprints instead of storing passwords.
 - Milestone 4 is partially implemented: the helper owns Codex app-server attachment, project/thread listing, thread open/read, turn send/steer/interrupt, desktop handoff, preview discovery, and rollout-tail recovery scaffolding.
-- Milestone 5 has a rudimentary interactive iPhone surface: browse projects and threads, open a thread, stream deltas, send prompts, interrupt, refresh, and hand off to the Mac.
+- Milestone 5 has a rudimentary interactive iPhone surface: browse projects and threads, open a thread, stream deltas, send prompts, interrupt, refresh, hand off to the Mac, and surface helper-owned Git working-tree state for the selected thread.
 - Milestones 6 through 8 remain early scaffolds. Terminal, files, and previews are secondary surfaces and not production-ready.
 
 ## Milestone 1: Docs and License Baseline
@@ -164,6 +164,9 @@ Turn the sync core into a usable iPhone-first Codex interface.
 - active and archived thread handling
 - full-history timeline rendering
 - thread open, continue, and state refresh flows
+- helper-owned Git status refresh for the selected thread `cwd`
+- thread-header diff pill, structured diff viewer, and latest-agent inline Git actions
+- thread-scoped commit flow for files changed by the current chat, helper-generated drafts, `origin` push, and GitHub-only PR creation when `gh` is authenticated
 - rename/archive plumbing prepared behind the service layer, with UI wiring following after send/open/interrupt stability
 - multi-thread switching without assuming one desktop-selected thread
 - Liquid Glass visual system for the primary app shell
@@ -176,12 +179,14 @@ Turn the sync core into a usable iPhone-first Codex interface.
 
 - Users can browse and switch among multiple Codex projects and chats from iPhone.
 - Timeline state stays coherent when moving between running and idle threads.
+- Dirty working trees for the selected thread surface helper-owned `+/-` counts, a structured diff, and commit actions without shell scraping on iPhone.
 - The mobile UI remains independent from the current selection inside `Codex.app`.
 
 **v1 Non-Goals**
 
 - iPad-first layouts
 - rich desktop editing workflows
+- partial staging UI, remote selection, or non-GitHub PR providers
 
 ## Milestone 6: Terminal Surface
 

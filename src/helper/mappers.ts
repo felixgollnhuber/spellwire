@@ -6,6 +6,7 @@ import type {
     CodexSandboxPolicy,
     CodexThreadDetail,
     CodexThreadRuntime,
+    CodexTimelineContentPart,
     CodexThreadSummary,
     CodexTimelineItem,
 } from "../shared/protocol.js";
@@ -113,28 +114,74 @@ function titleForThread(thread: RawThread): string {
     return "Untitled Thread";
 }
 
-function joinUserInput(content: unknown): string {
+function mapUserInputContent(content: unknown): CodexTimelineContentPart[] {
     if (!Array.isArray(content)) {
-        return "";
+        return [];
     }
+
+    const mapped: Array<CodexTimelineContentPart | null> = content.map((part) => {
+        if (!part || typeof part !== "object") {
+            return null;
+        }
+        if ((part as { type?: unknown }).type === "text") {
+            return {
+                type: "text" as const,
+                text: String((part as { text?: unknown }).text ?? ""),
+            };
+        }
+        if ((part as { type?: unknown }).type === "mention") {
+            return {
+                type: "mention" as const,
+                name: String((part as { name?: unknown }).name ?? "mention"),
+                path: typeof (part as { path?: unknown }).path === "string" ? String((part as { path?: unknown }).path) : null,
+            };
+        }
+        if ((part as { type?: unknown }).type === "skill") {
+            return {
+                type: "skill" as const,
+                name: String((part as { name?: unknown }).name ?? "skill"),
+                path: typeof (part as { path?: unknown }).path === "string" ? String((part as { path?: unknown }).path) : null,
+            };
+        }
+        if ((part as { type?: unknown }).type === "image") {
+            const url = String((part as { url?: unknown }).url ?? "");
+            if (!url) {
+                return null;
+            }
+            return {
+                type: "image" as const,
+                url,
+            };
+        }
+        if ((part as { type?: unknown }).type === "localImage") {
+            const imagePath = String((part as { path?: unknown }).path ?? "");
+            if (!imagePath) {
+                return null;
+            }
+            return {
+                type: "localImage" as const,
+                path: imagePath,
+            };
+        }
+        return null;
+    });
+    return mapped.flatMap((part) => (part ? [part] : []));
+}
+
+function joinUserInput(content: CodexTimelineContentPart[]): string {
     return content
         .map((part) => {
-            if (!part || typeof part !== "object") {
-                return "";
+            switch (part.type) {
+                case "text":
+                    return part.text;
+                case "mention":
+                    return `@${part.name}`;
+                case "skill":
+                    return `$${part.name}`;
+                case "image":
+                case "localImage":
+                    return "[image]";
             }
-            if ((part as { type?: unknown }).type === "text") {
-                return String((part as { text?: unknown }).text ?? "");
-            }
-            if ((part as { type?: unknown }).type === "mention") {
-                return `@${String((part as { name?: unknown }).name ?? "mention")}`;
-            }
-            if ((part as { type?: unknown }).type === "skill") {
-                return `$${String((part as { name?: unknown }).name ?? "skill")}`;
-            }
-            if ((part as { type?: unknown }).type === "image" || (part as { type?: unknown }).type === "localImage") {
-                return "[image]";
-            }
-            return "";
         })
         .filter(Boolean)
         .join("\n");
@@ -166,19 +213,24 @@ function timelineItemFromRawItem(turn: RawTurn, item: RawThreadItem): CodexTimel
     };
 
     switch (item.type) {
-        case "userMessage":
+        case "userMessage": {
+            const content = mapUserInputContent(item.content);
             return {
                 ...base,
                 kind: "userMessage",
                 title: "You",
-                body: joinUserInput(item.content),
+                body: joinUserInput(content),
+                changedPaths: null,
+                content,
             };
+        }
         case "agentMessage":
             return {
                 ...base,
                 kind: "agentMessage",
                 title: "Codex",
                 body: String(item.text ?? ""),
+                changedPaths: null,
             };
         case "plan":
             return {
@@ -186,6 +238,7 @@ function timelineItemFromRawItem(turn: RawTurn, item: RawThreadItem): CodexTimel
                 kind: "plan",
                 title: "Plan",
                 body: String(item.text ?? ""),
+                changedPaths: null,
             };
         case "reasoning":
             return {
@@ -195,6 +248,7 @@ function timelineItemFromRawItem(turn: RawTurn, item: RawThreadItem): CodexTimel
                 body: [...((item.summary as string[] | undefined) ?? []), ...((item.content as string[] | undefined) ?? [])]
                     .filter(Boolean)
                     .join("\n\n"),
+                changedPaths: null,
             };
         case "commandExecution":
             return {
@@ -202,6 +256,7 @@ function timelineItemFromRawItem(turn: RawTurn, item: RawThreadItem): CodexTimel
                 kind: "commandExecution",
                 title: String(item.command ?? "Command"),
                 body: String(item.aggregatedOutput ?? ""),
+                changedPaths: null,
             };
         case "fileChange":
             return {
@@ -209,6 +264,16 @@ function timelineItemFromRawItem(turn: RawTurn, item: RawThreadItem): CodexTimel
                 kind: "fileChange",
                 title: "File Changes",
                 body: summarizeFileChanges(item.changes),
+                changedPaths: Array.isArray(item.changes)
+                    ? item.changes
+                        .flatMap((change) => {
+                            if (!change || typeof change !== "object") {
+                                return [];
+                            }
+                            const pathValue = (change as { path?: unknown }).path;
+                            return typeof pathValue === "string" && pathValue.length > 0 ? [pathValue] : [];
+                        })
+                    : null,
             };
         case "mcpToolCall":
             return {
@@ -216,6 +281,7 @@ function timelineItemFromRawItem(turn: RawTurn, item: RawThreadItem): CodexTimel
                 kind: "mcpToolCall",
                 title: `${String(item.server ?? "MCP")} · ${String(item.tool ?? "tool")}`,
                 body: item.result ? JSON.stringify(item.result) : String(item.error ?? ""),
+                changedPaths: null,
             };
         case "dynamicToolCall":
             return {
@@ -223,6 +289,7 @@ function timelineItemFromRawItem(turn: RawTurn, item: RawThreadItem): CodexTimel
                 kind: "dynamicToolCall",
                 title: String(item.tool ?? "Tool Call"),
                 body: item.contentItems ? JSON.stringify(item.contentItems) : "",
+                changedPaths: null,
             };
         default:
             return {
@@ -230,6 +297,7 @@ function timelineItemFromRawItem(turn: RawTurn, item: RawThreadItem): CodexTimel
                 kind: item.type,
                 title: item.type,
                 body: JSON.stringify(item),
+                changedPaths: null,
             };
     }
 }

@@ -4,7 +4,7 @@
 
 Spellwire is an iPhone-first remote control for Codex on macOS. It connects directly to your Mac over SSH on the local network or through Tailscale, keeps its view aligned with the same local Codex environment used by `Codex.app`, and does not depend on a relay or hosted control plane.
 
-> Status: alpha. This repo now includes a buildable TypeScript helper scaffold in `src/` and a rudimentary interactive iPhone client in `spellwire-ios/`. Helper-owned Codex sync, rollout recovery, terminal, files, and preview flows are present as early implementations and are not production-ready yet.
+> Status: alpha. This repo now includes a buildable TypeScript helper scaffold in `src/` and a rudimentary interactive iPhone client in `spellwire-ios/`. Helper-owned Codex sync, Git status and commit flows, rollout recovery, terminal, files, and preview surfaces are present as early implementations and are not production-ready yet.
 
 ![Platform](https://img.shields.io/badge/platform-iOS%2026.4%2B%20%7C%20macOS-black)
 ![Transport](https://img.shields.io/badge/transport-SSH%20only-111827)
@@ -27,6 +27,7 @@ Spellwire is an iPhone-first remote control for Codex on macOS. It connects dire
 - Browse multiple projects and multiple chats from the same Mac.
 - Keep the full local Codex history visible on iPhone.
 - Reattach to the correct thread, `cwd`, and runtime context instead of following only the thread currently open on the desktop.
+- View helper-owned Git working-tree counts and structured diffs for the selected thread `cwd`, then commit, push to `origin`, or open a GitHub pull request from the latest agent turn when supported.
 
 ### Terminal
 
@@ -119,8 +120,20 @@ Spellwire's helper-owned sync contract is:
 - Use persisted rollout and session files in `~/.codex/sessions` as the recovery and catch-up path for running chats, context-window usage, off-screen runs, and desktop continuity.
 - Merge history item-aware, not `turnId`-only. For huge or still-running chats, allow a recent-window merge first and run canonical reconciliation afterward.
 - Keep the mobile app independent from whichever desktop thread is currently selected in `Codex.app`.
+- Keep Git working-tree status, diff rendering data, and commit mutation flows as helper-owned adjunct state instead of folding them into `thread/read`.
 
 Because `Codex.app` may not live-refresh external writes, desktop handoff and refresh behavior are helper-owned and bounded. Mobile correctness must not depend on desktop route state.
+
+## Git in Threads
+
+The current helper scaffold exposes typed JSON RPC for thread-local Git status, structured diffs, commit previews, and commit execution. The iPhone chat can show a top-right diff pill for a dirty thread, open a helper-owned unified diff viewer, and attach `Diff` plus `Commit & Push` actions to the latest idle agent message.
+
+Current v1 limits are intentionally narrow:
+
+- commits stage only files attributed to the current thread's file-change history
+- pushes target `origin` only
+- pull request creation is GitHub-only and requires authenticated `gh`
+- the iPhone app consumes typed helper JSON and does not scrape Git CLI text
 
 ## Prerequisites
 
@@ -195,8 +208,8 @@ The setup command shown for `authorized_keys` is intended to stay shell-neutral 
 Today this repository includes:
 
 - a buildable TypeScript helper scaffold under `src/` with `spellwire up|stop|status|logs|doctor|rpc|open <threadId>|previews list`
-- helper tests under `test/` for runtime paths, launch-agent generation, thread mapping, and rollout recovery indexing
-- `spellwire-ios/` with host onboarding, Ed25519 identity management, host fingerprint pinning, a Codex-first workspace, and secondary terminal/file/preview surfaces
+- helper tests under `test/` for runtime paths, launch-agent generation, thread mapping, rollout recovery indexing, and Git working-tree RPC behavior
+- `spellwire-ios/` with host onboarding, Ed25519 identity management, host fingerprint pinning, a Codex-first workspace, helper-owned Git diff and commit UI, and secondary terminal/file/preview surfaces
 - shared project assets under `.github/assets/`
 - docs that define the target SSH-first architecture
 
