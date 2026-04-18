@@ -7,6 +7,7 @@ It assumes:
 - macOS host only in v1
 - iPhone-first `iOS 26.4+` client
 - SSH-only transport
+- shell-neutral SSH bootstrap commands that work across fish, zsh, bash, and similar login shells
 - npm as the primary helper distribution path
 - manual SSH pairing in v1
 - no relay and no hosted control plane
@@ -75,6 +76,7 @@ Create the Mac helper as a background-first npm package with a usable local CLI 
 - `spellwire up`, `stop`, `status`, `logs`, `doctor`, and `rpc` behave consistently on macOS.
 - LaunchAgent and foreground debug mode can target the same helper runtime contract.
 - iOS-facing helper commands return JSON, not human-only text.
+- SSH exec bootstrap commands remain shell-neutral instead of depending on the user's login shell to parse POSIX script syntax.
 
 **v1 Non-Goals**
 
@@ -106,6 +108,7 @@ Implement a manual but robust v1 trust flow between iPhone and Mac.
 - A user can connect from iPhone to a Mac over LAN or Tailscale without any relay.
 - The app refuses host changes until the fingerprint is re-confirmed.
 - The Mac trust model does not depend on macOS Keychain.
+- Any onboarding snippet shown for `authorized_keys` setup works when pasted into fish, zsh, bash, and other common shells.
 
 **v1 Non-Goals**
 

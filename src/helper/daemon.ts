@@ -257,18 +257,15 @@ export class SpellwireDaemon {
 
         const { activeThreads, archivedThreads } = await this.threadInventory();
         const archived = archivedThreads.some((thread) => thread.id === threadID);
-        const response = await this.appServer.request<{ thread: RawThread }>(
-            resume ? "thread/resume" : "thread/read",
-            resume
-                ? {
-                      threadId: threadID,
-                      persistExtendedHistory: true,
-                  }
-                : {
-                      threadId: threadID,
-                      includeTurns: true,
-                  },
-        );
+        if (resume) {
+            await this.appServer.request("thread/resume", {
+                threadId: threadID,
+            });
+        }
+        const response = await this.appServer.request<{ thread: RawThread }>("thread/read", {
+            threadId: threadID,
+            includeTurns: true,
+        });
 
         const thread = response.thread;
         const projects = projectsFromThreads(activeThreads, archivedThreads);
@@ -297,7 +294,6 @@ export class SpellwireDaemon {
     private async turnStart(params: TurnPromptParams): Promise<TurnMutationResult> {
         await this.appServer.request("thread/resume", {
             threadId: params.threadID,
-            persistExtendedHistory: true,
         });
         const response = await this.appServer.request<{ turn: { id: string } }>("turn/start", {
             threadId: params.threadID,

@@ -177,21 +177,22 @@ nonisolated private final class SSHExecTransport: @unchecked Sendable {
     }
 
     private func notifyConnected() {
-        DispatchQueue.main.async {
-            self.delegate?.transportDidConnect()
+        Task { @MainActor [weak self] in
+            self?.delegate?.transportDidConnect()
         }
     }
 
     private func notifyReceive(_ data: Data) {
-        DispatchQueue.main.async {
-            self.delegate?.transportDidReceive(data: data)
+        Task { @MainActor [weak self, data] in
+            self?.delegate?.transportDidReceive(data: data)
         }
     }
 
     private func notifyDisconnect(error: Error?) {
         guard !didNotifyDisconnect else { return }
         didNotifyDisconnect = true
-        DispatchQueue.main.async {
+        Task { @MainActor [weak self, error] in
+            guard let self else { return }
             self.delegate?.transportDidDisconnect(error: self.isDisconnectRequested ? nil : error)
         }
     }
@@ -434,8 +435,31 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
     }
 
     private var helperRPCLaunchCommand: String {
+        let script = """
+        export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin:$HOME/.local/bin:$HOME/Library/pnpm:$PATH"
+        if command -v spellwire >/dev/null 2>&1; then
+            exec "$(command -v spellwire)" rpc
+        fi
+
+        for candidate in "$HOME/.local/bin/spellwire" "$HOME/Library/pnpm/spellwire" /opt/homebrew/bin/spellwire /usr/local/bin/spellwire; do
+            if [ -x "$candidate" ]; then
+                exec "$candidate" rpc
+            fi
+        done
+
+        for fnm_bin in "$HOME/.local/share/fnm/node-versions"/*/installation/bin; do
+            if [ -x "$fnm_bin/spellwire" ]; then
+                export PATH="$fnm_bin:$PATH"
+                exec "$fnm_bin/spellwire" rpc
+            fi
+        done
+
+        echo "spellwire not found in PATH=$PATH" >&2
+        exit 127
         """
-        export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin:$HOME/.local/bin:$HOME/Library/pnpm:$PATH"; if command -v spellwire >/dev/null 2>&1; then exec "$(command -v spellwire)" rpc; elif [ -x "$HOME/.local/bin/spellwire" ]; then exec "$HOME/.local/bin/spellwire" rpc; elif [ -x "$HOME/Library/pnpm/spellwire" ]; then exec "$HOME/Library/pnpm/spellwire" rpc; elif [ -x /opt/homebrew/bin/spellwire ]; then exec /opt/homebrew/bin/spellwire rpc; elif [ -x /usr/local/bin/spellwire ]; then exec /usr/local/bin/spellwire rpc; else for fnm_bin in "$HOME/.local/share/fnm/node-versions"/*/installation/bin; do if [ -x "$fnm_bin/spellwire" ]; then export PATH="$fnm_bin:$PATH"; exec "$fnm_bin/spellwire" rpc; fi; done; if [ -x /bin/zsh ]; then exec /bin/zsh -lc 'for fnm_bin in "$HOME/.local/share/fnm/node-versions"/*/installation/bin; do export PATH="$fnm_bin:$PATH"; done; spellwire rpc'; elif [ -x /bin/bash ]; then exec /bin/bash -lc 'for fnm_bin in "$HOME/.local/share/fnm/node-versions"/*/installation/bin; do export PATH="$fnm_bin:$PATH"; done; spellwire rpc'; else echo "spellwire not found in PATH=$PATH" >&2; exit 127; fi; fi
-        """
+
+        // Send a shell-neutral command string through the account shell so the
+        // POSIX bootstrap keeps working for fish, zsh, bash, and similar setups.
+        return RemoteShellCommand.posixBootstrap(script: script)
     }
 }

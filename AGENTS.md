@@ -38,6 +38,7 @@ Spellwire is not a hosted control plane, does not depend on a relay, and does no
 - The Mac requires `Remote Login` plus a user-installed public key in `~/.ssh/authorized_keys`.
 - Do not add a macOS Keychain dependency to the trust model in v1.
 - All helper APIs consumed by the iPhone app must return machine-readable JSON. The iPhone app must not parse human CLI text as protocol.
+- Any command sent through SSH exec, or shown to the user for copy-paste into a shell, must work regardless of whether the remote account uses fish, zsh, bash, or another common shell. Wrap POSIX bootstrap logic in an explicit `/bin/sh` invocation instead of assuming the login shell parses POSIX syntax.
 
 ## Architecture Contract
 
@@ -98,6 +99,7 @@ Agents must preserve this model:
 - The terminal surface must use a pinned `libghostty-vt` revision or vendored snapshot. Do not float to arbitrary latest builds.
 - Keep helper state, session recovery, and desktop handoff logic separate from SwiftUI views.
 - Prefer stable, typed RPC contracts over shell scraping or ad hoc text parsing.
+- Keep SSH bootstrap commands shell-neutral. Remote helper startup, tmux/session resume, and onboarding snippets must execute correctly even when the account login shell is not POSIX-compatible.
 
 ## Documentation Rule
 

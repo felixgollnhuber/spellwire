@@ -18,6 +18,7 @@ Spellwire is an iPhone-first remote control for Codex on macOS. It connects dire
 - A direct SSH client for controlling a Mac that runs Codex locally.
 - A local-first system that mirrors the same Codex universe already present on the Mac.
 - A product that works on LAN and over Tailscale without introducing a relay.
+- A shell-neutral SSH workflow that does not assume the Mac account uses a POSIX login shell.
 
 ## Product Surfaces
 
@@ -134,6 +135,8 @@ Planned public CLI contract:
 
 Homebrew is intentionally later work, not part of the initial required path.
 
+Spellwire's SSH bootstrap commands are expected to work even when the remote account uses fish, zsh, bash, or another common shell. POSIX bootstrap logic should run through an explicit `/bin/sh` wrapper instead of assuming the login shell accepts POSIX script syntax directly.
+
 ## Manual v1 Onboarding
 
 v1 uses a manual SSH trust model. The current iPhone scaffold already generates and stores the Ed25519 key locally, shows the OpenSSH public key for `authorized_keys`, and requires host-fingerprint approval before connecting.
@@ -148,6 +151,7 @@ v1 uses a manual SSH trust model. The current iPhone scaffold already generates 
 8. Connect over LAN hostname or IP, or over a Tailscale hostname or IP.
 
 v1 does not assume QR bootstrap and does not depend on macOS Keychain.
+The setup command shown for `authorized_keys` is intended to stay shell-neutral for common login shells on the Mac.
 
 ## Current Repo State
 
