@@ -233,10 +233,13 @@ private enum SSHLaunchMode {
 
     static func tmuxCommand(sessionName: String) -> String {
         let escapedSession = shellSingleQuote(sessionName)
-
-        return """
+        let script = """
         export PATH="/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:$HOME/.local/bin:$PATH"; if command -v tmux >/dev/null 2>&1; then exec "$(command -v tmux)" new-session -A -s \(escapedSession); elif [ -x /opt/homebrew/bin/tmux ]; then exec /opt/homebrew/bin/tmux new-session -A -s \(escapedSession); elif [ -x /usr/local/bin/tmux ]; then exec /usr/local/bin/tmux new-session -A -s \(escapedSession); else echo "tmux not found in PATH=$PATH" >&2; exit 127; fi
         """
+
+        // SSH exec requests are parsed by the account shell on many hosts. Wrap
+        // the POSIX tmux bootstrap in /bin/sh so fish logins do not choke on it.
+        return "/bin/sh -lc \(shellSingleQuote(script))"
     }
 
     private static func shellSingleQuote(_ value: String) -> String {
