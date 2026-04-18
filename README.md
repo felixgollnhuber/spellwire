@@ -49,26 +49,59 @@ Spellwire is an iPhone-first remote control for Codex on macOS. It connects dire
 
 `Codex.app` on the Mac remains the development environment. Spellwire stays in sync with that same local environment instead of creating a separate mobile backend or a separate remote state store.
 
-```text
-iPhone app
-  |- SSH exec + JSON over stdio -> spellwire helper RPC
-  |- SSH PTY -> terminal
-  |- SFTP / SSH file ops -> file manager
-  |- SSH port forwarding -> localhost previews
-  |
-  v
-macOS host
-  |- sshd
-  |- spellwire helper (LaunchAgent + CLI)
-  |    |- owns or attaches to codex app-server
-  |    |- remembers last active thread
-  |    |- can open explicit threads in Codex.app
-  |
-  |- ~/.codex/sessions
-  |    |- persisted sessions
-  |    |- rollout artifacts for recovery and catch-up
-  |
-  |- Codex.app
+```mermaid
+flowchart LR
+    subgraph iPhone["iPhone"]
+        IOS["Spellwire iOS app<br/>SwiftUI + Liquid Glass"]
+        CHAT["Codex workspace"]
+        TERM["Terminal UI"]
+        FILES["File browser"]
+        PREV["Preview browser"]
+        KEYS["Ed25519 key + pinned host fingerprint<br/>stored on device"]
+    end
+
+    subgraph Mac["macOS host"]
+        SSHD["sshd<br/>Remote Login"]
+        HELPER["spellwire helper<br/>LaunchAgent + CLI"]
+        RPC["spellwire rpc<br/>JSON over stdio"]
+        OPEN["spellwire open &lt;threadId&gt;"]
+        PRELIST["spellwire previews list"]
+        APPSERVER["codex app-server"]
+        SESS["~/.codex/sessions<br/>sessions + rollout artifacts"]
+        CODEXAPP["Codex.app"]
+        PTY["SSH PTY shell"]
+        SFTP["SFTP / SSH file ops"]
+        TUNNEL["SSH port forwarding"]
+    end
+
+    IOS --> CHAT
+    IOS --> TERM
+    IOS --> FILES
+    IOS --> PREV
+    IOS --> KEYS
+
+    IOS -->|"SSH exec + JSON RPC"| SSHD
+    IOS -->|"SSH PTY"| SSHD
+    IOS -->|"SFTP / SSH file ops"| SSHD
+    IOS -->|"SSH port forwarding"| SSHD
+
+    SSHD --> HELPER
+    SSHD --> PTY
+    SSHD --> SFTP
+    SSHD --> TUNNEL
+
+    HELPER --> RPC
+    HELPER --> OPEN
+    HELPER --> PRELIST
+
+    HELPER <-->|"attach / manage"| APPSERVER
+    HELPER <-->|"recovery / catch-up"| SESS
+    HELPER -->|"open explicit thread"| CODEXAPP
+
+    CHAT -->|"thread/list, thread/read, thread/resume,<br/>live updates"| HELPER
+    TERM -->|"interactive shell session"| PTY
+    FILES -->|"browse / upload / download / edit"| SFTP
+    PREV -->|"localhost preview access"| TUNNEL
 ```
 
 ## Sync Model
