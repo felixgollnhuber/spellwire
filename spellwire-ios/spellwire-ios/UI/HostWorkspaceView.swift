@@ -50,11 +50,20 @@ struct HostWorkspaceView: View {
                     )
                 }
 
-                workspaceRow(
-                    title: "Browser",
-                    systemImage: host.browserUsesTunnel ? "point.3.connected.trianglepath.dotted" : "safari",
-                    description: host.browserURLString ?? "Configure a remote URL to add the Safari or SSH tunnel flow."
-                )
+                NavigationLink {
+                    HostBrowserView(
+                        host: host,
+                        password: appModel.password(for: host.id),
+                        trustStore: appModel.trustStore,
+                        defaultScheme: (try? appModel.browserSettingsStore.load().defaultScheme) ?? BrowserSettings.default.defaultScheme
+                    )
+                } label: {
+                    workspaceRow(
+                        title: "Browser",
+                        systemImage: host.browserUsesTunnel ? "point.3.connected.trianglepath.dotted" : "safari",
+                        description: host.browserURLString ?? "Open the configured URL in an embedded web view."
+                    )
+                }
             }
 
             Section("Next Build Steps") {

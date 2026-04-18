@@ -99,6 +99,26 @@ final class BrowserViewModel {
         }
     }
 
+    func createFolder(named name: String, in parentPath: String) async throws {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw RemoteFileError.serverError("Folder name is required.")
+        }
+
+        let resolvedParent = try await fileSystem.canonicalize(path: parentPath)
+        let folderPath = URL(filePath: resolvedParent)
+            .appending(path: trimmedName, directoryHint: .isDirectory)
+            .path(percentEncoded: false)
+
+        try await fileSystem.createDirectory(path: folderPath)
+    }
+
+    func delete(paths: [String]) async throws {
+        for path in paths {
+            try await fileSystem.delete(path: path)
+        }
+    }
+
     func openTextDocument(path: String) async throws -> OpenedTextDocument {
         let resolvedPath = try await fileSystem.canonicalize(path: path)
         guard let documentKind = FileClassifier.editorKind(for: resolvedPath) else {

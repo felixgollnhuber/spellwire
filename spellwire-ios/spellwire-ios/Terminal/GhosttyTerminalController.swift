@@ -103,6 +103,53 @@ final class GhosttyTerminalController {
         )
     }
 
+    var isMouseTrackingEnabled: Bool {
+        ghostty_bridge_terminal_mouse_tracking_enabled(terminal)
+    }
+
+    func encodeMouseScroll(delta: Int, at location: CGPoint, in viewSize: CGSize) -> Data? {
+        guard delta != 0, isMouseTrackingEnabled else { return nil }
+
+        let screenWidth = max(UInt32(viewSize.width.rounded()), 1)
+        let screenHeight = max(UInt32(viewSize.height.rounded()), 1)
+        let cellWidth = max(UInt32(lastCellSize.width.rounded()), 1)
+        let cellHeight = max(UInt32(lastCellSize.height.rounded()), 1)
+        let clampedLocation = CGPoint(
+            x: min(max(location.x, 0), viewSize.width),
+            y: min(max(location.y, 0), viewSize.height)
+        )
+        let direction: Int32 = delta < 0 ? -1 : 1
+
+        var payload = Data()
+        payload.reserveCapacity(abs(delta) * 16)
+
+        for _ in 0..<abs(delta) {
+            var buffer = [UInt8](repeating: 0, count: 32)
+            let written = buffer.withUnsafeMutableBufferPointer { pointer in
+                ghostty_bridge_terminal_encode_mouse_scroll(
+                    terminal,
+                    Float(clampedLocation.x),
+                    Float(clampedLocation.y),
+                    direction,
+                    screenWidth,
+                    screenHeight,
+                    cellWidth,
+                    cellHeight,
+                    pointer.baseAddress,
+                    pointer.count
+                )
+            }
+
+            guard written > 0 else {
+                return payload.isEmpty ? nil : payload
+            }
+
+            payload.append(contentsOf: buffer.prefix(written))
+        }
+
+        return payload
+    }
+
     private func refreshSnapshot() {
         guard ghostty_render_state_update(renderState, terminal) == GHOSTTY_SUCCESS else {
             return

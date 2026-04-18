@@ -110,7 +110,16 @@ final class TerminalSessionCoordinator: TerminalTransportDelegate {
         transport?.resize(cols: size.cols, rows: size.rows, pixelSize: size.pixelSize)
     }
 
-    func scroll(delta: Int) {
+    func scroll(delta: Int, at location: CGPoint, in viewSize: CGSize) {
+        guard delta != 0 else { return }
+
+        if host.prefersTmuxResume,
+           let payload = terminal.encodeMouseScroll(delta: delta, at: location, in: viewSize)
+        {
+            send(payload)
+            return
+        }
+
         terminal.scroll(delta: delta)
     }
 
