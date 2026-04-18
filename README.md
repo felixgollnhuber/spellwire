@@ -37,17 +37,21 @@ Spellwire is an iPhone-first remote control for Codex on macOS. It connects dire
 ### Files
 
 - A Finder-like remote file manager over SSH and SFTP.
-- Browse, search, preview, edit text, create, rename, move, delete, upload, and download.
+- The current scaffold can browse, search, preview, export, edit text, create folders, and delete remote items.
+- Rename, move, upload, and download are planned follow-on file operations rather than fully wired v1 behavior today.
 - Broad file access without trying to become a second full desktop IDE.
 
 ### Previews
 
-- View localhost web previews from the Mac on iPhone through SSH port forwarding only.
-- Support both helper-discovered previews and manual forwarded-port entry.
+- Target v1 preview transport is SSH port forwarding to localhost services on the Mac.
+- The current iPhone scaffold supports manual preview setup through either a forwarded port or a direct browser URL on the host record.
+- Helper-backed preview discovery exists in the helper scaffold, but it is not wired into the iPhone app yet.
 
 ## Architecture
 
 `Codex.app` on the Mac remains the development environment. Spellwire stays in sync with that same local environment instead of creating a separate mobile backend or a separate remote state store.
+
+The diagram below shows the intended v1 architecture. In the current repo scaffold, the helper already exposes `spellwire previews list`, but the iPhone preview browser still relies on manual host configuration and does not consume helper-backed preview discovery yet.
 
 ```mermaid
 flowchart LR
@@ -100,7 +104,7 @@ flowchart LR
 
     CHAT -->|"thread/list, thread/read, thread/resume,<br/>live updates"| HELPER
     TERM -->|"interactive shell session"| PTY
-    FILES -->|"browse / upload / download / edit"| SFTP
+    FILES -->|"browse / preview / export / edit"| SFTP
     PREV -->|"localhost preview access"| TUNNEL
 ```
 
@@ -192,7 +196,7 @@ Today this repository includes:
 
 - a buildable TypeScript helper scaffold under `src/` with `spellwire up|stop|status|logs|doctor|rpc|open <threadId>|previews list`
 - helper tests under `test/` for runtime paths, launch-agent generation, thread mapping, and rollout recovery indexing
-- `spellwire-ios/` with host onboarding, Ed25519 identity management, host fingerprint pinning, a Codex-first workspace, and secondary terminal/file surfaces
+- `spellwire-ios/` with host onboarding, Ed25519 identity management, host fingerprint pinning, a Codex-first workspace, and secondary terminal/file/preview surfaces
 - shared project assets under `.github/assets/`
 - docs that define the target SSH-first architecture
 
