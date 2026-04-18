@@ -142,6 +142,7 @@ struct CodexThreadChatView: View {
                     await service.refreshSelectedThread()
                 }
                 .task(id: thread.id) {
+                    service.prepareToOpenThread(thread)
                     await service.open(thread)
                 }
                 .onChange(of: composerFocused) { _, isFocused in
@@ -370,26 +371,9 @@ struct CodexThreadChatView: View {
                         .buttonStyle(.plain)
                     }
 
-                    Button {
-                        Task {
-                            await sendCurrentMessage()
-                        }
-                    } label: {
-                        Image(systemName: isSending ? "hourglass" : "arrow.up")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(sendDisabled ? .white.opacity(0.45) : sendForeground)
-                            .frame(width: 32, height: 32)
-                            .background {
-                                Circle()
-                                    .fill(sendDisabled ? Color.clear : sendBackground)
-                                    .overlay {
-                                        Circle()
-                                            .strokeBorder(sendDisabled ? Color.white.opacity(0.08) : sendBackground.opacity(0), lineWidth: 1)
-                                    }
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(sendDisabled)
+                    Spacer(minLength: 0)
+
+                    sendButton
                 }
             }
             .padding(.horizontal, 14)
@@ -458,6 +442,30 @@ struct CodexThreadChatView: View {
             }
         }
         .padding(.top, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var sendButton: some View {
+        Button {
+            Task {
+                await sendCurrentMessage()
+            }
+        } label: {
+            Image(systemName: isSending ? "hourglass" : "arrow.up")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(sendDisabled ? .white.opacity(0.45) : sendForeground)
+                .frame(width: 32, height: 32)
+                .background {
+                    Circle()
+                        .fill(sendDisabled ? Color.clear : sendBackground)
+                        .overlay {
+                            Circle()
+                                .strokeBorder(sendDisabled ? Color.white.opacity(0.08) : sendBackground.opacity(0), lineWidth: 1)
+                        }
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(sendDisabled)
     }
 
     private var sendDisabled: Bool {
@@ -612,7 +620,10 @@ struct CodexThreadChatView: View {
     }
 
     private func sendCurrentMessage() async {
-        guard let selectedThread = service.selectedThread ?? currentDetail?.thread else { return }
+        let selectedThread = currentDetail?.thread ?? service.selectedThread ?? thread
+        if service.selectedThread?.id != selectedThread.id {
+            service.prepareToOpenThread(selectedThread)
+        }
         isSending = true
         defer { isSending = false }
 

@@ -273,6 +273,7 @@ extension CodexWorkspaceView {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(threads.enumerated()), id: \.element.id) { index, thread in
                         Button {
+                            service.prepareToOpenThread(thread)
                             pendingThread = thread
                         } label: {
                             CompactThreadRow(thread: thread)

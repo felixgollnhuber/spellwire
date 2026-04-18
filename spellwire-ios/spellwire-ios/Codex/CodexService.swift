@@ -84,7 +84,7 @@ final class CodexService {
     }
 
     func open(_ thread: CodexThreadSummary) async {
-        selectedThread = thread
+        prepareToOpenThread(thread)
         await loadThread(method: "threads.open")
     }
 
@@ -99,6 +99,7 @@ final class CodexService {
             } else {
                 threads.insert(created, at: 0)
             }
+            prepareToOpenThread(created)
             errorMessage = nil
             scheduleWorkspaceRefresh()
             return created
@@ -106,6 +107,15 @@ final class CodexService {
             errorMessage = error.localizedDescription
             return nil
         }
+    }
+
+    func prepareToOpenThread(_ thread: CodexThreadSummary) {
+        selectedThread = thread
+        threadRefreshTask?.cancel()
+        if threadDetail?.thread.id != thread.id {
+            threadDetail = nil
+        }
+        availableBranches = []
     }
 
     func refreshSelectedThread() async {
@@ -497,11 +507,7 @@ final class CodexService {
             return
         }
 
-        if let index = threadDetail?.timeline.firstIndex(where: { $0.id == mapped.id }) {
-            threadDetail?.timeline[index] = mapped
-        } else {
-            threadDetail?.timeline.append(mapped)
-        }
+        mergeTimelineItem(mapped)
     }
 
     private func mergeStartedItem(item: JSONValue?, turnID: String?) {
@@ -510,11 +516,30 @@ final class CodexService {
         }
         mapped.status = "inProgress"
 
+        mergeTimelineItem(mapped)
+    }
+
+    private func mergeTimelineItem(_ mapped: CodexTimelineItem) {
         if let index = threadDetail?.timeline.firstIndex(where: { $0.id == mapped.id }) {
             threadDetail?.timeline[index] = mapped
+        } else if let pendingIndex = threadDetail?.timeline.firstIndex(where: { isMatchingPendingLocalMessage($0, canonical: mapped) }) {
+            threadDetail?.timeline[pendingIndex] = mapped
         } else {
             threadDetail?.timeline.append(mapped)
         }
+    }
+
+    private func isMatchingPendingLocalMessage(_ existing: CodexTimelineItem, canonical mapped: CodexTimelineItem) -> Bool {
+        guard mapped.kind == "userMessage" else { return false }
+        guard existing.kind == "userMessage", existing.id.hasPrefix("local:") else { return false }
+        guard existing.status == "pending" || existing.status == "inProgress" else { return false }
+        return normalizedTimelineBody(existing.body) == normalizedTimelineBody(mapped.body)
+    }
+
+    private func normalizedTimelineBody(_ body: String) -> String {
+        body
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\r\n", with: "\n")
     }
 
     private func timelineItem(from item: [String: JSONValue], turnID: String?) -> CodexTimelineItem? {
