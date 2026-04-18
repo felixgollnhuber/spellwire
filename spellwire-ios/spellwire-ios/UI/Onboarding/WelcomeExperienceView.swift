@@ -154,7 +154,7 @@ struct WelcomeExperienceView: View {
                 HStack(spacing: 12) {
                     setupCopyButton(
                         target: .key,
-                        title: "Copy Key",
+                        title: "Key",
                         systemImage: "doc.on.doc"
                     ) {
                         UIPasteboard.general.string = appModel.publicKeyOpenSSH
@@ -162,7 +162,7 @@ struct WelcomeExperienceView: View {
 
                     setupCopyButton(
                         target: .command,
-                        title: "Copy Command",
+                        title: "Command",
                         systemImage: "terminal"
                     ) {
                         UIPasteboard.general.string = authorizedKeysInstallCommand
@@ -199,7 +199,7 @@ struct WelcomeExperienceView: View {
 
     private var setupInputContent: some View {
         VStack(alignment: .leading, spacing: 22) {
-            SpellwireGlassPanel {
+            WelcomeSetupCard {
                 VStack(spacing: 0) {
                     HostSetupRow(
                         title: "Name",
@@ -527,6 +527,47 @@ private struct HostSetupRow: View {
             focusedField.wrappedValue = .username
         case .username:
             focusedField.wrappedValue = nil
+        }
+    }
+}
+
+private struct WelcomeSetupCard<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    private let cornerRadius: CGFloat = 30
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            content
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(WelcomeSetupCardChrome(cornerRadius: cornerRadius))
+    }
+}
+
+private struct WelcomeSetupCardChrome: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+
+            content
+                .glassEffect(.regular.interactive(), in: shape)
+                .overlay {
+                    shape.strokeBorder(.primary.opacity(0.10), lineWidth: 1)
+                }
+        } else {
+            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+
+            content
+                .background {
+                    shape.fill(.thinMaterial)
+                }
+                .overlay {
+                    shape.strokeBorder(.primary.opacity(0.10), lineWidth: 1)
+                }
         }
     }
 }

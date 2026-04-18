@@ -251,25 +251,39 @@ extension CodexWorkspaceView {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach(threads) { thread in
+                    ForEach(Array(threads.enumerated()), id: \.element.id) { index, thread in
                         Button {
                             pendingThread = thread
                         } label: {
                             CompactThreadRow(thread: thread)
                         }
                         .buttonStyle(.plain)
+                        .transition(
+                            .offset(y: -10)
+                                .combined(with: .opacity)
+                                .animation(.snappy(duration: 0.24, extraBounce: 0).delay(Double(index) * 0.025))
+                        )
                     }
                 }
                 .padding(.leading, 28)
+                .transition(
+                    .asymmetric(
+                        insertion: .move(edge: .top).combined(with: .opacity),
+                        removal: .opacity
+                    )
+                )
             }
         }
+        .animation(.snappy(duration: 0.28, extraBounce: 0.08), value: isExpanded)
     }
 
     private func toggleProject(_ projectID: CodexProject.ID) {
-        if collapsedProjectIDs.contains(projectID) {
-            collapsedProjectIDs.remove(projectID)
-        } else {
-            collapsedProjectIDs.insert(projectID)
+        withAnimation(.snappy(duration: 0.28, extraBounce: 0.08)) {
+            if collapsedProjectIDs.contains(projectID) {
+                collapsedProjectIDs.remove(projectID)
+            } else {
+                collapsedProjectIDs.insert(projectID)
+            }
         }
     }
 
