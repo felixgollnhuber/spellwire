@@ -109,7 +109,7 @@ private struct WorkspaceShellView: View {
                 hostPendingDeletion = nil
             }
         } message: { host in
-            Text("Remove \(host.nickname) and its saved password, trust entry, and local cache?")
+            Text("Remove \(host.nickname) and its pinned trust entry and local cache?")
         }
         .alert("Reset Everything?", isPresented: $showingResetConfirmation) {
             Button("Reset", role: .destructive) {
@@ -126,7 +126,8 @@ private struct WorkspaceShellView: View {
         .sheet(item: $hostEditor) { presentation in
             HostEditorView(
                 title: presentation.title,
-                draft: HostEditorDraft(host: presentation.host, password: presentation.host.map { appModel.password(for: $0.id) } ?? "")
+                draft: HostEditorDraft(host: presentation.host),
+                publicKey: appModel.publicKeyOpenSSH
             ) { draft in
                 do {
                     _ = try appModel.saveHost(from: draft, existingID: presentation.host?.id)

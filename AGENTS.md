@@ -20,8 +20,9 @@ Spellwire is not a hosted control plane, does not depend on a relay, and does no
 
 ## Current State
 
-- The repo currently contains docs, assets, and an early iOS scaffold in `spellwire-ios/`.
-- The npm helper, SSH transport, Codex sync runtime, terminal, file manager, and preview browser are planned architecture, not fully implemented code in this repo yet.
+- The repo now contains a buildable TypeScript helper scaffold at the repo root under `src/` plus npm metadata and tests.
+- `spellwire-ios/` now includes Ed25519 key onboarding, host fingerprint pinning, a shared SSH identity model, and a rudimentary Codex-first workspace for browsing projects and threads, reading history, sending prompts, interrupting turns, and opening a thread on the Mac.
+- The helper-owned sync layer, rollout recovery, desktop handoff, terminal, file manager, and preview flows exist as early implementation scaffolds and are not production-complete yet.
 - The current docs must describe that reality honestly.
 
 ## Hard Guardrails

@@ -13,6 +13,8 @@
 DerivedData/
 **/.swiftpm/
 spellwire-ios/Build/
+node_modules/
+dist/
 
 # Local Xcode config overrides
 **/*.local.xcconfig

@@ -3,8 +3,8 @@ import SwiftUI
 struct TerminalSessionView: View {
     @State private var coordinator: TerminalSessionCoordinator
 
-    init(host: HostRecord, password: String, trustStore: HostTrustStore) {
-        _coordinator = State(initialValue: TerminalSessionCoordinator(host: host, password: password, trustStore: trustStore)!)
+    init(host: HostRecord, identity: SSHDeviceIdentity, trustStore: HostTrustStore) {
+        _coordinator = State(initialValue: TerminalSessionCoordinator(host: host, identity: identity, trustStore: trustStore)!)
     }
 
     var body: some View {

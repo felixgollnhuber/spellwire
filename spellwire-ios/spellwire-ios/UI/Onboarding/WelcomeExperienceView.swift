@@ -10,7 +10,6 @@ private enum HostSetupField: Hashable {
     case host
     case port
     case username
-    case password
 }
 
 struct WelcomeExperienceView: View {
@@ -22,6 +21,7 @@ struct WelcomeExperienceView: View {
     @State private var connectionProbe = HostConnectionProbe()
     @State private var isFinishingSetup = false
     @State private var errorMessage: String?
+    @State private var showingShareSheet = false
     @FocusState private var focusedField: HostSetupField?
 
     var body: some View {
@@ -74,6 +74,9 @@ struct WelcomeExperienceView: View {
         .onDisappear {
             connectionProbe.disconnect()
         }
+        .sheet(isPresented: $showingShareSheet) {
+            ActivityView(activityItems: [appModel.publicKeyOpenSSH])
+        }
     }
 
     private var welcomeContent: some View {
@@ -85,7 +88,7 @@ struct WelcomeExperienceView: View {
                 Text("Spellwire keeps your Codex Mac one tap away.")
                     .font(.spellwireDisplay(40))
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Pair your iPhone with a Mac over SSH, pin the host key, and keep the whole local Codex workspace in reach.")
+                Text("Pair your iPhone with a Mac over SSH, pin the host key, and keep the same local Codex workspace in reach.")
                     .font(.spellwireBody(17))
                     .foregroundStyle(SpellwirePalette.secondaryForeground)
                     .fixedSize(horizontal: false, vertical: true)
@@ -135,7 +138,7 @@ struct WelcomeExperienceView: View {
                 Text("Connect your Mac")
                     .font(.spellwireDisplay(focusedField == nil ? 34 : 28))
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Enter the SSH host, port, username, and password. Spellwire will test the connection before opening the app.")
+                Text("Enter the SSH host, port, and username. Spellwire uses one Ed25519 key, pins the host fingerprint, and then opens the workspace.")
                     .font(.spellwireBody(16))
                     .foregroundStyle(SpellwirePalette.secondaryForeground)
                     .fixedSize(horizontal: false, vertical: true)
@@ -184,19 +187,33 @@ struct WelcomeExperienceView: View {
                         isSecure: false
                     )
 
-                    WelcomeFieldDivider()
+                }
 
-                    HostSetupRow(
-                        title: "Password",
-                        symbol: "key.horizontal",
-                        text: $draft.password,
-                        keyboardType: .default,
-                        textContentType: .password,
-                        submitLabel: .go,
-                        focusedField: $focusedField,
-                        field: .password,
-                        isSecure: true
-                    )
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("1. Enable Remote Login on your Mac.")
+                    Text("2. Install the helper from npm and run `spellwire up`.")
+                    Text("3. Add this public key to `~/.ssh/authorized_keys`.")
+                }
+                .font(.spellwireBody(14, weight: .medium))
+                .foregroundStyle(SpellwirePalette.secondaryForeground)
+
+                Text(appModel.publicKeyOpenSSH)
+                    .font(.system(.footnote, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                HStack(spacing: 12) {
+                    Button("Copy Key") {
+                        UIPasteboard.general.string = appModel.publicKeyOpenSSH
+                    }
+                    .buttonStyle(.glass)
+
+                    Button("Share Key") {
+                        showingShareSheet = true
+                    }
+                    .buttonStyle(.glass)
                 }
 
                 if let errorMessage {
@@ -272,15 +289,9 @@ struct WelcomeExperienceView: View {
         errorMessage = nil
         focusedField = nil
 
-        let trimmedPassword = draft.password.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPassword.isEmpty else {
-            errorMessage = "Password is required."
-            return
-        }
-
         do {
             let host = try appModel.validatedHostRecord(from: draft)
-            connectionProbe.connect(host: host, password: trimmedPassword)
+            connectionProbe.connect(host: host, identity: appModel.sshIdentity)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -466,8 +477,6 @@ private struct HostSetupRow: View {
         case .port:
             focusedField.wrappedValue = .username
         case .username:
-            focusedField.wrappedValue = .password
-        case .password:
             focusedField.wrappedValue = nil
         }
     }

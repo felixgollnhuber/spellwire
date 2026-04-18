@@ -6,7 +6,7 @@ import UIKit
 @Observable
 final class TerminalSessionCoordinator: TerminalTransportDelegate {
     let host: HostRecord
-    let password: String
+    let identity: SSHDeviceIdentity
     let trustStore: HostTrustStore
     let terminal: GhosttyTerminalController
 
@@ -19,13 +19,13 @@ final class TerminalSessionCoordinator: TerminalTransportDelegate {
     private var reconnectTask: Task<Void, Never>?
     private var shouldReconnect = true
 
-    init?(host: HostRecord, password: String, trustStore: HostTrustStore) {
+    init?(host: HostRecord, identity: SSHDeviceIdentity, trustStore: HostTrustStore) {
         guard let terminal = GhosttyTerminalController() else {
             return nil
         }
 
         self.host = host
-        self.password = password
+        self.identity = identity
         self.trustStore = trustStore
         self.terminal = terminal
         terminal.onWriteToPTY = { [weak self] data in
@@ -185,18 +185,22 @@ final class TerminalSessionCoordinator: TerminalTransportDelegate {
         shouldReconnect = true
         state = isReconnect ? .reconnecting : .connecting
         let trustedHost = trustStore.trustedHost(for: host.id)
-        let transport = SSHTerminalTransport(
-            host: host,
-            password: password,
-            trustedHost: trustedHost
-        ) { [weak self] challenge, reply in
-            guard let self else { return }
-            self.state = .trustPrompt
-            self.pendingHostKeyChallenge = challenge
-            self.pendingTrustReply = reply
+        do {
+            let transport = SSHTerminalTransport(
+                host: host,
+                identity: try identity.clientIdentity(username: host.username),
+                trustedHost: trustedHost
+            ) { [weak self] challenge, reply in
+                guard let self else { return }
+                self.state = .trustPrompt
+                self.pendingHostKeyChallenge = challenge
+                self.pendingTrustReply = reply
+            }
+            transport.delegate = self
+            self.transport = transport
+            transport.connect()
+        } catch {
+            state = .failed(error.localizedDescription)
         }
-        transport.delegate = self
-        self.transport = transport
-        transport.connect()
     }
 }

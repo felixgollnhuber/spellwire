@@ -30,7 +30,7 @@ final class HostBrowserCoordinator {
     }
 
     let host: HostRecord
-    let password: String
+    let identity: SSHDeviceIdentity
     let trustStore: HostTrustStore
     let defaultScheme: String
 
@@ -53,9 +53,9 @@ final class HostBrowserCoordinator {
     private var webViewForward: (() -> Void)?
     private var webViewReload: (() -> Void)?
 
-    init(host: HostRecord, password: String, trustStore: HostTrustStore, defaultScheme: String) {
+    init(host: HostRecord, identity: SSHDeviceIdentity, trustStore: HostTrustStore, defaultScheme: String) {
         self.host = host
-        self.password = password
+        self.identity = identity
         self.trustStore = trustStore
         self.defaultScheme = defaultScheme
     }
@@ -183,7 +183,7 @@ final class HostBrowserCoordinator {
 
                 let portForwardService = LocalPortForwardService(
                     host: host,
-                    password: password,
+                    identity: try identity.clientIdentity(username: host.username),
                     trustedHost: trustStore.trustedHost(for: host.id),
                     onHostKeyChallenge: { [weak self] challenge, reply in
                         guard let self else { return }
@@ -268,7 +268,7 @@ struct HostBrowserView: View {
 
     init(
         host: HostRecord,
-        password: String,
+        identity: SSHDeviceIdentity,
         trustStore: HostTrustStore,
         defaultScheme: String,
         onEditHost: @escaping () -> Void
@@ -276,7 +276,7 @@ struct HostBrowserView: View {
         _coordinator = State(
             initialValue: HostBrowserCoordinator(
                 host: host,
-                password: password,
+                identity: identity,
                 trustStore: trustStore,
                 defaultScheme: defaultScheme
             )
