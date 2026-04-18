@@ -201,7 +201,6 @@
 				CODE_SIGN_ENTITLEMENTS = "spellwire-ios/spellwire_ios.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = HDMNFGUUL4;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
@@ -231,7 +230,6 @@
 					"$(inherited)",
 					"-lghostty-vt",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "xyz.floritzmaier.spellwire-ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -253,7 +251,6 @@
 				CODE_SIGN_ENTITLEMENTS = "spellwire-ios/spellwire_ios.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = HDMNFGUUL4;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
@@ -283,7 +280,6 @@
 					"$(inherited)",
 					"-lghostty-vt",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "xyz.floritzmaier.spellwire-ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
