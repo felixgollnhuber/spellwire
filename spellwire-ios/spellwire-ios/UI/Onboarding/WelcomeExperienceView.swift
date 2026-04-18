@@ -272,7 +272,7 @@ struct WelcomeExperienceView: View {
             }
 
             SpellwireActionButton(
-                variant: .primary,
+                variant: .secondary,
                 size: .xl,
                 fullWidth: true,
                 isLoading: connectionProbe.state == .connecting || connectionProbe.state == .trustPrompt,
@@ -477,6 +477,8 @@ private struct WelcomeAppIcon: View {
 }
 
 private struct HostSetupRow: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let title: String
     let symbol: String
     @Binding var text: String
@@ -492,7 +494,7 @@ private struct HostSetupRow: View {
             Image(systemName: symbol)
                 .font(.system(size: 18, weight: .semibold))
                 .frame(width: 22)
-                .foregroundStyle(SpellwirePalette.accent)
+                .foregroundStyle(colorScheme == .dark ? .white : .black)
 
             Group {
                 if isSecure {
