@@ -120,6 +120,10 @@ struct HostEditorView: View {
                         UIPasteboard.general.string = publicKey
                     }
 
+                    Button("Copy Setup Command") {
+                        UIPasteboard.general.string = authorizedKeysInstallCommand
+                    }
+
                     Button("Share Setup Command") {
                         shareItems = [authorizedKeysInstallCommand]
                     }

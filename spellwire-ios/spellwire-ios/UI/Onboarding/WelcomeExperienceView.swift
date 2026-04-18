@@ -209,16 +209,25 @@ struct WelcomeExperienceView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-                HStack(spacing: 12) {
-                    Button("Copy Key") {
-                        UIPasteboard.general.string = appModel.publicKeyOpenSSH
-                    }
-                    .buttonStyle(.glass)
+                VStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        Button("Copy Key") {
+                            UIPasteboard.general.string = appModel.publicKeyOpenSSH
+                        }
+                        .buttonStyle(.glass)
 
-                    Button("Share Command") {
-                        shareItems = [authorizedKeysInstallCommand]
+                        Button("Copy Command") {
+                            UIPasteboard.general.string = authorizedKeysInstallCommand
+                        }
+                        .buttonStyle(.glass)
                     }
-                    .buttonStyle(.glass)
+
+                    HStack {
+                        Button("Share Command") {
+                            shareItems = [authorizedKeysInstallCommand]
+                        }
+                        .buttonStyle(.glass)
+                    }
                 }
 
                 if let errorMessage {
