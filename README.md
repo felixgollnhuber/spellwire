@@ -4,7 +4,7 @@
 
 Spellwire is an iPhone-first remote control for Codex on macOS. It connects directly to your Mac over SSH on the local network or through Tailscale, keeps its view aligned with the same local Codex environment used by `Codex.app`, and does not depend on a relay or hosted control plane.
 
-> Status: this repo currently contains docs, assets, and an early iOS scaffold. The npm helper, SSH transport, Codex sync runtime, terminal, file manager, and preview browser described below are the target v1 architecture and are not fully implemented in this repo yet.
+> Status: alpha. This repo now includes a buildable TypeScript helper scaffold in `src/` and a rudimentary interactive iPhone client in `spellwire-ios/`. Helper-owned Codex sync, rollout recovery, terminal, files, and preview flows are present as early implementations and are not production-ready yet.
 
 ![Platform](https://img.shields.io/badge/platform-iOS%2026.4%2B%20%7C%20macOS-black)
 ![Transport](https://img.shields.io/badge/transport-SSH%20only-111827)
@@ -72,7 +72,7 @@ macOS host
 
 ## Sync Model
 
-Spellwire's planned sync contract is:
+Spellwire's helper-owned sync contract is:
 
 - Use paginated `thread/list` across relevant source kinds to discover all projects and chats, including archived threads.
 - Use `thread/resume` when opening or reattaching to a thread so the same thread id stays bound to the right `cwd` and runtime context.
@@ -93,9 +93,19 @@ Because `Codex.app` may not live-refresh external writes, desktop handoff and re
 - An iPhone running `iOS 26.4+`.
 - Xcode if you are building the iPhone app from source.
 
-## Planned Install and Update Path
+## Install and Update Path
 
-The helper is planned as a globally installed npm package. The public command surface Spellwire is targeting is:
+For local development in this repo today:
+
+```sh
+npm install
+npm run build
+node dist/src/cli.js up
+node dist/src/cli.js status
+node dist/src/cli.js doctor
+```
+
+The intended public distribution path remains a globally installed npm package. The public command surface is:
 
 ```sh
 npm install -g spellwire@latest
@@ -105,7 +115,7 @@ spellwire logs
 spellwire doctor
 ```
 
-Update path:
+When the package is published, the update path stays:
 
 ```sh
 npm install -g spellwire@latest
@@ -126,7 +136,7 @@ Homebrew is intentionally later work, not part of the initial required path.
 
 ## Manual v1 Onboarding
 
-v1 uses a manual SSH trust model.
+v1 uses a manual SSH trust model. The current iPhone scaffold already generates and stores the Ed25519 key locally, shows the OpenSSH public key for `authorized_keys`, and requires host-fingerprint approval before connecting.
 
 1. Enable `Remote Login` on the Mac.
 2. Confirm that Codex can run locally on the Mac and that `codex app-server` is available.
@@ -143,11 +153,13 @@ v1 does not assume QR bootstrap and does not depend on macOS Keychain.
 
 Today this repository includes:
 
-- `spellwire-ios/` with an early iOS app scaffold
+- a buildable TypeScript helper scaffold under `src/` with `spellwire up|stop|status|logs|doctor|rpc|open <threadId>|previews list`
+- helper tests under `test/` for runtime paths, launch-agent generation, thread mapping, and rollout recovery indexing
+- `spellwire-ios/` with host onboarding, Ed25519 identity management, host fingerprint pinning, a Codex-first workspace, and secondary terminal/file surfaces
 - shared project assets under `.github/assets/`
 - docs that define the target SSH-first architecture
 
-This repository does not yet contain the full helper/runtime implementation described above. The docs are the contract for that work.
+This repository does not yet contain a production-complete v1 runtime. The helper, sync layer, and iPhone experience are scaffolded and interactive, but they still need hardening, deeper recovery coverage, and more complete terminal/file/preview behavior.
 
 ## iOS Design and Scope
 

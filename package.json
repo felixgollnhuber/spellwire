@@ -1,0 +1,18 @@
+{
+  "name": "spellwire",
+  "version": "0.1.0",
+  "description": "Spellwire macOS helper and iPhone client scaffold",
+  "type": "module",
+  "bin": {
+    "spellwire": "dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test dist/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "^5.8.3"
+  }
+}

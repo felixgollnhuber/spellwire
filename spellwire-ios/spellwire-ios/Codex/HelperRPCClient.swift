@@ -1,34 +1,42 @@
 import Foundation
-import UIKit
 @preconcurrency import NIOCore
 @preconcurrency import NIOPosix
 @preconcurrency import NIOSSH
 
-nonisolated final class SSHTerminalTransport: TerminalTransport, @unchecked Sendable {
-    weak var delegate: TerminalTransportDelegate?
+@MainActor
+protocol HelperRPCTransportDelegate: AnyObject {
+    func transportDidConnect()
+    func transportDidReceive(data: Data)
+    func transportDidDisconnect(error: Error?)
+}
+
+nonisolated private final class SSHExecTransport: @unchecked Sendable {
+    weak var delegate: HelperRPCTransportDelegate?
 
     private let host: HostRecord
     private let identity: SSHClientIdentity
     private let trustedHost: TrustedHost?
+    private let command: String
     private let onHostKeyChallenge: @MainActor (HostKeyChallenge, @escaping (Bool) -> Void) -> Void
 
-    private let workQueue = DispatchQueue(label: "xyz.floritzmaier.spellwire-ios.ssh.transport")
+    private let workQueue = DispatchQueue(label: "xyz.floritzmaier.spellwire-ios.codex.rpc")
     private var group: MultiThreadedEventLoopGroup?
     private var rootChannel: Channel?
     private var childChannel: Channel?
     private var isDisconnectRequested = false
     private var didNotifyDisconnect = false
-    private var currentSize = (cols: 80, rows: 24, pixelSize: CGSize(width: 720, height: 456))
 
     init(
         host: HostRecord,
         identity: SSHClientIdentity,
         trustedHost: TrustedHost?,
+        command: String,
         onHostKeyChallenge: @escaping @MainActor (HostKeyChallenge, @escaping (Bool) -> Void) -> Void
     ) {
         self.host = host
         self.identity = identity
         self.trustedHost = trustedHost
+        self.command = command
         self.onHostKeyChallenge = onHostKeyChallenge
     }
 
@@ -41,21 +49,6 @@ nonisolated final class SSHTerminalTransport: TerminalTransport, @unchecked Send
     func send(_ data: Data) {
         workQueue.async {
             self.sendSync(data)
-        }
-    }
-
-    func resize(cols: Int, rows: Int, pixelSize: CGSize) {
-        currentSize = (cols, rows, pixelSize)
-        workQueue.async {
-            guard let childChannel = self.childChannel else { return }
-            let event = SSHChannelRequestEvent.WindowChangeRequest(
-                terminalCharacterWidth: cols,
-                terminalRowHeight: rows,
-                terminalPixelWidth: Int(pixelSize.width.rounded()),
-                terminalPixelHeight: Int(pixelSize.height.rounded())
-            )
-            let promise = childChannel.eventLoop.makePromise(of: Void.self)
-            childChannel.pipeline.triggerUserOutboundEvent(event, promise: promise)
         }
     }
 
@@ -115,7 +108,7 @@ nonisolated final class SSHTerminalTransport: TerminalTransport, @unchecked Send
             sshHandler.createChannel(sessionPromise) { [weak self] childChannel, channelType in
                 guard let self else {
                     return childChannel.eventLoop.makeFailedFuture(
-                        TransportError.connectionFailed("Transport was released during channel setup.")
+                        TransportError.connectionFailed("RPC transport was released during setup.")
                     )
                 }
 
@@ -123,27 +116,15 @@ nonisolated final class SSHTerminalTransport: TerminalTransport, @unchecked Send
                     return childChannel.eventLoop.makeFailedFuture(TransportError.invalidChannelType)
                 }
 
-                let launchMode: SSHLaunchMode
-                if self.host.prefersTmuxResume {
-                    launchMode = .tmux(sessionName: self.host.tmuxSessionName ?? "main")
-                } else {
-                    launchMode = .shell
-                }
-
                 return childChannel.eventLoop.makeCompletedFuture {
-                    let sync = childChannel.pipeline.syncOperations
-                    try sync.addHandler(
-                        SSHSessionChannelHandler(
-                            initialSize: self.currentSize,
-                            launchMode: launchMode,
+                    try childChannel.pipeline.syncOperations.addHandler(
+                        SSHExecChannelHandler(
+                            command: self.command,
                             onReady: { [weak self] in
                                 self?.notifyConnected()
                             },
                             onData: { [weak self] data in
                                 self?.notifyReceive(data)
-                            },
-                            onExitStatus: { [weak self] status in
-                                self?.notifyExitStatus(status)
                             },
                             onDisconnect: { [weak self] error in
                                 self?.requestShutdown(error: error)
@@ -207,12 +188,6 @@ nonisolated final class SSHTerminalTransport: TerminalTransport, @unchecked Send
         }
     }
 
-    private func notifyExitStatus(_ status: Int32) {
-        DispatchQueue.main.async {
-            self.delegate?.transportDidReceiveExitStatus(status)
-        }
-    }
-
     private func notifyDisconnect(error: Error?) {
         guard !didNotifyDisconnect else { return }
         didNotifyDisconnect = true
@@ -222,93 +197,33 @@ nonisolated final class SSHTerminalTransport: TerminalTransport, @unchecked Send
     }
 }
 
-nonisolated private enum SSHLaunchMode {
-    case shell
-    case tmux(sessionName: String)
-
-    static func tmuxCommand(sessionName: String) -> String {
-        let escapedSession = shellSingleQuote(sessionName)
-        let script = """
-        export PATH="/opt/homebrew/bin:/usr/local/bin:/opt/local/bin:$HOME/.local/bin:$PATH"; if command -v tmux >/dev/null 2>&1; then exec "$(command -v tmux)" new-session -A -s \(escapedSession); elif [ -x /opt/homebrew/bin/tmux ]; then exec /opt/homebrew/bin/tmux new-session -A -s \(escapedSession); elif [ -x /usr/local/bin/tmux ]; then exec /usr/local/bin/tmux new-session -A -s \(escapedSession); else echo "tmux not found in PATH=$PATH" >&2; exit 127; fi
-        """
-
-        // SSH exec requests are parsed by the account shell on many hosts. Wrap
-        // the POSIX tmux bootstrap in /bin/sh so fish logins do not choke on it.
-        return "/bin/sh -lc \(shellSingleQuote(script))"
-    }
-
-    private static func shellSingleQuote(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "'\"'\"'"))'"
-    }
-}
-
-nonisolated private final class SSHSessionChannelHandler: ChannelDuplexHandler, @unchecked Sendable {
+nonisolated private final class SSHExecChannelHandler: ChannelDuplexHandler, @unchecked Sendable {
     typealias InboundIn = SSHChannelData
     typealias OutboundIn = ByteBuffer
     typealias OutboundOut = SSHChannelData
 
-    private let initialSize: (cols: Int, rows: Int, pixelSize: CGSize)
-    private let launchMode: SSHLaunchMode
+    private let command: String
     private let onReady: () -> Void
     private let onData: (Data) -> Void
-    private let onExitStatus: (Int32) -> Void
     private let onDisconnect: (Error?) -> Void
 
     init(
-        initialSize: (cols: Int, rows: Int, pixelSize: CGSize),
-        launchMode: SSHLaunchMode,
+        command: String,
         onReady: @escaping () -> Void,
         onData: @escaping (Data) -> Void,
-        onExitStatus: @escaping (Int32) -> Void,
         onDisconnect: @escaping (Error?) -> Void
     ) {
-        self.initialSize = initialSize
-        self.launchMode = launchMode
+        self.command = command
         self.onReady = onReady
         self.onData = onData
-        self.onExitStatus = onExitStatus
         self.onDisconnect = onDisconnect
     }
 
-    func handlerAdded(context: ChannelHandlerContext) {
-        let setOption = context.channel.setOption(ChannelOptions.allowRemoteHalfClosure, value: true)
-        setOption.whenFailure { [weak self] error in
-            self?.onDisconnect(error)
-        }
-    }
-
     func channelActive(context: ChannelHandlerContext) {
-        let pty = SSHChannelRequestEvent.PseudoTerminalRequest(
-            wantReply: false,
-            term: "xterm-256color",
-            terminalCharacterWidth: initialSize.cols,
-            terminalRowHeight: initialSize.rows,
-            terminalPixelWidth: Int(initialSize.pixelSize.width.rounded()),
-            terminalPixelHeight: Int(initialSize.pixelSize.height.rounded()),
-            terminalModes: .init([:])
+        context.triggerUserOutboundEvent(
+            SSHChannelRequestEvent.ExecRequest(command: command, wantReply: false),
+            promise: nil
         )
-        let environment = SSHChannelRequestEvent.EnvironmentRequest(
-            wantReply: false,
-            name: "TERM",
-            value: "xterm-256color"
-        )
-        context.triggerUserOutboundEvent(pty, promise: nil)
-        context.triggerUserOutboundEvent(environment, promise: nil)
-        switch launchMode {
-        case .shell:
-            context.triggerUserOutboundEvent(
-                SSHChannelRequestEvent.ShellRequest(wantReply: false),
-                promise: nil
-            )
-        case .tmux(let sessionName):
-            context.triggerUserOutboundEvent(
-                SSHChannelRequestEvent.ExecRequest(
-                    command: SSHLaunchMode.tmuxCommand(sessionName: sessionName),
-                    wantReply: false
-                ),
-                promise: nil
-            )
-        }
         onReady()
     }
 
@@ -324,15 +239,6 @@ nonisolated private final class SSHSessionChannelHandler: ChannelDuplexHandler, 
             onData(payload)
         default:
             break
-        }
-    }
-
-    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
-        switch event {
-        case let status as SSHChannelRequestEvent.ExitStatus:
-            onExitStatus(Int32(status.exitStatus))
-        default:
-            context.fireUserInboundEventTriggered(event)
         }
     }
 
@@ -352,5 +258,160 @@ nonisolated private final class SSHSessionChannelHandler: ChannelDuplexHandler, 
     func channelInactive(context: ChannelHandlerContext) {
         onDisconnect(nil)
         context.fireChannelInactive()
+    }
+}
+
+@MainActor
+final class HelperRPCClient: HelperRPCTransportDelegate {
+    private struct OutgoingEnvelope<Params: Encodable>: Encodable {
+        let kind = "request"
+        let id: String
+        let method: String
+        let params: Params
+    }
+
+    private struct BaseEnvelope: Decodable {
+        let kind: String
+        let id: String?
+        let ok: Bool?
+    }
+
+    private struct SuccessEnvelope<Result: Decodable>: Decodable {
+        let kind: String
+        let id: String
+        let ok: Bool
+        let result: Result
+    }
+
+    private struct FailureEnvelope: Decodable {
+        let kind: String
+        let id: String
+        let ok: Bool
+        let error: HelperResponseErrorPayload
+    }
+
+    private let host: HostRecord
+    private let identity: SSHDeviceIdentity
+    private var trustedHost: TrustedHost?
+    private let onHostKeyChallenge: @MainActor (HostKeyChallenge, @escaping (Bool) -> Void) -> Void
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
+
+    private var transport: SSHExecTransport?
+    private var connectContinuation: CheckedContinuation<Void, Error>?
+    private var pendingResponses: [String: CheckedContinuation<Data, Error>] = [:]
+    private var receiveBuffer = Data()
+
+    var eventHandler: ((HelperEventEnvelope) -> Void)?
+
+    init(
+        host: HostRecord,
+        identity: SSHDeviceIdentity,
+        trustedHost: TrustedHost?,
+        onHostKeyChallenge: @escaping @MainActor (HostKeyChallenge, @escaping (Bool) -> Void) -> Void
+    ) {
+        self.host = host
+        self.identity = identity
+        self.trustedHost = trustedHost
+        self.onHostKeyChallenge = onHostKeyChallenge
+    }
+
+    func updateTrustedHost(_ trustedHost: TrustedHost?) {
+        self.trustedHost = trustedHost
+    }
+
+    func connect() async throws {
+        if transport != nil {
+            return
+        }
+
+        let transport = SSHExecTransport(
+            host: host,
+            identity: try identity.clientIdentity(username: host.username),
+            trustedHost: trustedHost,
+            command: "spellwire rpc",
+            onHostKeyChallenge: onHostKeyChallenge
+        )
+        transport.delegate = self
+        self.transport = transport
+
+        try await withCheckedThrowingContinuation { continuation in
+            connectContinuation = continuation
+            transport.connect()
+        }
+    }
+
+    func disconnect() {
+        transport?.disconnect()
+        transport = nil
+    }
+
+    func request<Result: Decodable, Params: Encodable>(method: String, params: Params) async throws -> Result {
+        try await connect()
+        let id = UUID().uuidString
+        let requestData = try encoder.encode(
+            OutgoingEnvelope(id: id, method: method, params: params)
+        ) + Data([0x0A])
+
+        let responseData = try await withCheckedThrowingContinuation { continuation in
+            pendingResponses[id] = continuation
+            transport?.send(requestData)
+        }
+
+        if let failure = try? decoder.decode(FailureEnvelope.self, from: responseData), failure.ok == false {
+            throw failure.error
+        }
+
+        let success = try decoder.decode(SuccessEnvelope<Result>.self, from: responseData)
+        return success.result
+    }
+
+    func transportDidConnect() {
+        connectContinuation?.resume()
+        connectContinuation = nil
+    }
+
+    func transportDidReceive(data: Data) {
+        receiveBuffer.append(data)
+
+        while let newlineIndex = receiveBuffer.firstIndex(of: 0x0A) {
+            let line = receiveBuffer[..<newlineIndex]
+            receiveBuffer.removeSubrange(...newlineIndex)
+            guard !line.isEmpty else { continue }
+            handleLine(Data(line))
+        }
+    }
+
+    func transportDidDisconnect(error: Error?) {
+        let disconnectError = error ?? TransportError.connectionFailed("The helper RPC connection closed.")
+        connectContinuation?.resume(throwing: disconnectError)
+        connectContinuation = nil
+        let continuations = pendingResponses.values
+        pendingResponses.removeAll()
+        for continuation in continuations {
+            continuation.resume(throwing: disconnectError)
+        }
+        transport = nil
+    }
+
+    private func handleLine(_ line: Data) {
+        guard let envelope = try? decoder.decode(BaseEnvelope.self, from: line) else {
+            return
+        }
+
+        switch envelope.kind {
+        case "response":
+            guard let id = envelope.id, let continuation = pendingResponses.removeValue(forKey: id) else {
+                return
+            }
+            continuation.resume(returning: line)
+        case "event":
+            guard let event = try? decoder.decode(HelperEventEnvelope.self, from: line) else {
+                return
+            }
+            eventHandler?(event)
+        default:
+            break
+        }
     }
 }

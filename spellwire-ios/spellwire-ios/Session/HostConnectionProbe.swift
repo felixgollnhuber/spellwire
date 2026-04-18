@@ -19,7 +19,7 @@ final class HostConnectionProbe: TerminalTransportDelegate {
     private var didReachConnectedState = false
     private var isDisconnectRequested = false
 
-    func connect(host: HostRecord, password: String) {
+    func connect(host: HostRecord, identity: SSHDeviceIdentity) {
         disconnect()
 
         state = .connecting
@@ -29,20 +29,25 @@ final class HostConnectionProbe: TerminalTransportDelegate {
         didReachConnectedState = false
         isDisconnectRequested = false
 
-        let transport = SSHTerminalTransport(
-            host: host,
-            password: password,
-            trustedHost: trustedHostForRetry
-        ) { [weak self] challenge, reply in
-            guard let self else { return }
-            self.state = .trustPrompt
-            self.pendingHostKeyChallenge = challenge
-            self.pendingTrustReply = reply
-        }
+        do {
+            let transport = SSHTerminalTransport(
+                host: host,
+                identity: try identity.clientIdentity(username: host.username),
+                trustedHost: trustedHostForRetry
+            ) { [weak self] challenge, reply in
+                guard let self else { return }
+                self.state = .trustPrompt
+                self.pendingHostKeyChallenge = challenge
+                self.pendingTrustReply = reply
+            }
 
-        transport.delegate = self
-        self.transport = transport
-        transport.connect()
+            transport.delegate = self
+            self.transport = transport
+            transport.connect()
+        } catch {
+            state = .failed(error.localizedDescription)
+            errorMessage = error.localizedDescription
+        }
     }
 
     func disconnect() {

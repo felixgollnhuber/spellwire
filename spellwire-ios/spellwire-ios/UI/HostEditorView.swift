@@ -1,3 +1,4 @@
+import UIKit
 import SwiftUI
 
 struct HostEditorDraft: Equatable {
@@ -5,7 +6,6 @@ struct HostEditorDraft: Equatable {
     var hostname = ""
     var port = "22"
     var username = ""
-    var password = ""
     var browserURL = ""
     var browserUsesTunnel = false
     var useTmux = true
@@ -13,9 +13,8 @@ struct HostEditorDraft: Equatable {
 
     init() {}
 
-    init(host: HostRecord?, password: String) {
+    init(host: HostRecord?) {
         guard let host else {
-            self.password = password
             return
         }
 
@@ -23,7 +22,6 @@ struct HostEditorDraft: Equatable {
         hostname = host.hostname
         port = String(host.port)
         username = host.username
-        self.password = password
         browserURL = host.browserURLString ?? ""
         browserUsesTunnel = host.browserUsesTunnel
         useTmux = host.prefersTmuxResume
@@ -68,13 +66,16 @@ struct HostEditorPresentation: Identifiable {
 struct HostEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: HostEditorDraft
+    @State private var showingShareSheet = false
 
     let title: String
+    let publicKey: String
     let onSave: (HostEditorDraft) -> Void
 
-    init(title: String, draft: HostEditorDraft, onSave: @escaping (HostEditorDraft) -> Void) {
+    init(title: String, draft: HostEditorDraft, publicKey: String, onSave: @escaping (HostEditorDraft) -> Void) {
         self.title = title
         _draft = State(initialValue: draft)
+        self.publicKey = publicKey
         self.onSave = onSave
     }
 
@@ -91,7 +92,6 @@ struct HostEditorView: View {
                     TextField("Username", text: $draft.username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    SecureField("Password", text: $draft.password)
                 }
 
                 Section("Terminal") {
@@ -110,6 +110,20 @@ struct HostEditorView: View {
                         .autocorrectionDisabled()
                     Toggle("Use SSH tunnel", isOn: $draft.browserUsesTunnel)
                 }
+
+                Section("Spellwire Key") {
+                    Text(publicKey)
+                        .font(.footnote.monospaced())
+                        .textSelection(.enabled)
+
+                    Button("Copy Public Key") {
+                        UIPasteboard.general.string = publicKey
+                    }
+
+                    Button("Share Public Key") {
+                        showingShareSheet = true
+                    }
+                }
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
@@ -125,6 +139,9 @@ struct HostEditorView: View {
                         onSave(draft)
                     }
                 }
+            }
+            .sheet(isPresented: $showingShareSheet) {
+                ActivityView(activityItems: [publicKey])
             }
         }
     }

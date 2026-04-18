@@ -64,7 +64,7 @@ nonisolated struct OpenDocumentSession: Identifiable, Codable, Hashable, Sendabl
 }
 
 nonisolated enum RemoteFileError: LocalizedError, Sendable {
-    case missingPassword
+    case missingIdentity
     case nonUTF8File
     case unsupportedFile(String)
     case noSuchFile(String)
@@ -74,8 +74,8 @@ nonisolated enum RemoteFileError: LocalizedError, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case .missingPassword:
-            return "Password is required."
+        case .missingIdentity:
+            return "Spellwire could not load its SSH identity."
         case .nonUTF8File:
             return "This file could not be decoded as UTF-8 text."
         case .unsupportedFile(let path):

@@ -11,6 +11,15 @@ It assumes:
 - manual SSH pairing in v1
 - no relay and no hosted control plane
 
+## Current Snapshot
+
+- Milestone 1 is effectively in place: repo-facing docs now align on the SSH-only, local-first architecture.
+- Milestone 2 is scaffolded in code: the repo now ships a buildable TypeScript `spellwire` helper with the public CLI contract, LaunchAgent plumbing, daemon socket bridge, logs, doctor/status flows, and JSON RPC transport.
+- Milestone 3 is partially implemented in `spellwire-ios/`: the iPhone app now generates and stores an Ed25519 key, exports the OpenSSH public key, and pins host fingerprints instead of storing passwords.
+- Milestone 4 is partially implemented: the helper owns Codex app-server attachment, project/thread listing, thread open/read, turn send/steer/interrupt, desktop handoff, preview discovery, and rollout-tail recovery scaffolding.
+- Milestone 5 has a rudimentary interactive iPhone surface: browse projects and threads, open a thread, stream deltas, send prompts, interrupt, refresh, and hand off to the Mac.
+- Milestones 6 through 8 remain early scaffolds. Terminal, files, and previews are secondary surfaces and not production-ready.
+
 ## Milestone 1: Docs and License Baseline
 
 **Goal**
@@ -151,7 +160,8 @@ Turn the sync core into a usable iPhone-first Codex interface.
 - project and thread browsing
 - active and archived thread handling
 - full-history timeline rendering
-- thread open, continue, rename, and state refresh flows
+- thread open, continue, and state refresh flows
+- rename/archive plumbing prepared behind the service layer, with UI wiring following after send/open/interrupt stability
 - multi-thread switching without assuming one desktop-selected thread
 - Liquid Glass visual system for the primary app shell
 

@@ -5,7 +5,7 @@ import Foundation
 
 nonisolated final class SFTPRemoteFileSystem: RemoteFileSystem, @unchecked Sendable {
     private let host: HostRecord
-    private let password: String
+    private let identity: SSHClientIdentity
     private let trustedHost: TrustedHost?
     private let onHostKeyChallenge: HostKeyChallengeHandler
 
@@ -24,12 +24,12 @@ nonisolated final class SFTPRemoteFileSystem: RemoteFileSystem, @unchecked Senda
 
     init(
         host: HostRecord,
-        password: String,
+        identity: SSHClientIdentity,
         trustedHost: TrustedHost?,
         onHostKeyChallenge: @escaping HostKeyChallengeHandler
     ) {
         self.host = host
-        self.password = password
+        self.identity = identity
         self.trustedHost = trustedHost
         self.onHostKeyChallenge = onHostKeyChallenge
     }
@@ -248,11 +248,6 @@ nonisolated final class SFTPRemoteFileSystem: RemoteFileSystem, @unchecked Senda
     }
 
     private func connectSync() {
-        guard !password.isEmpty else {
-            finishConnect(result: .failure(RemoteFileError.missingPassword))
-            return
-        }
-
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         self.group = group
 
@@ -270,9 +265,9 @@ nonisolated final class SFTPRemoteFileSystem: RemoteFileSystem, @unchecked Senda
                         let sshHandler = NIOSSHHandler(
                             role: .client(
                                 .init(
-                                    userAuthDelegate: SFTPPasswordDelegate(
-                                        username: self.host.username,
-                                        password: self.password
+                                    userAuthDelegate: SSHClientPublicKeyAuthDelegate(
+                                        username: self.identity.username,
+                                        privateKey: self.identity.privateKey
                                     ),
                                     serverAuthDelegate: hostKeyDelegate
                                 )
@@ -822,28 +817,6 @@ nonisolated private enum SFTPResponse: Sendable {
 
 nonisolated private final class SFTPSSHHandlerBox: @unchecked Sendable {
     var handler: NIOSSHHandler?
-}
-
-nonisolated private struct SFTPPasswordDelegate: NIOSSHClientUserAuthenticationDelegate {
-    let username: String
-    let password: String
-
-    func nextAuthenticationType(
-        availableMethods: NIOSSHAvailableUserAuthenticationMethods,
-        nextChallengePromise: EventLoopPromise<NIOSSHUserAuthenticationOffer?>
-    ) {
-        if availableMethods.contains(.password) {
-            nextChallengePromise.succeed(
-                .init(
-                    username: username,
-                    serviceName: "ssh-connection",
-                    offer: .password(.init(password: password))
-                )
-            )
-        } else {
-            nextChallengePromise.succeed(nil)
-        }
-    }
 }
 
 nonisolated private final class SFTPChannelHandler: ChannelDuplexHandler, @unchecked Sendable {

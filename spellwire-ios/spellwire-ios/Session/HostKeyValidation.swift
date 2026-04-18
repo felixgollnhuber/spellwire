@@ -11,8 +11,9 @@ nonisolated enum HostKeyFingerprint {
     }
 
     static func sha256(for openSSHKey: String) -> String {
-        let digest = SHA256.hash(data: Data(openSSHKey.utf8))
-        return "SHA256:\(Data(digest).base64EncodedString())"
+        let blob = SSHKeyFormatting.openSSHBlob(from: openSSHKey) ?? Data(openSSHKey.utf8)
+        let digest = SHA256.hash(data: blob)
+        return "SHA256:\(Data(digest).base64EncodedString().replacingOccurrences(of: "=", with: ""))"
     }
 }
 

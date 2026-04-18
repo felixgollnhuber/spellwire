@@ -6,7 +6,7 @@ import Observation
 final class AppModel {
     let appDirectories: AppDirectories
     let hostStore: HostStore
-    let credentialStore: KeychainCredentialStore
+    let identityStore: SSHIdentityStore
     let trustStore: HostTrustStore
     let browserSettingsStore: BrowserSettingsStore
     let fileSessionManager: FileSessionManager
@@ -14,6 +14,7 @@ final class AppModel {
     let conflictResolver: ConflictResolver
     let previewStore: PreviewStore
 
+    private(set) var sshIdentity: SSHDeviceIdentity
     private(set) var hosts: [HostRecord] = []
     var selectedHostID: HostRecord.ID?
 
@@ -22,13 +23,14 @@ final class AppModel {
             let appDirectories = try AppDirectories()
             self.appDirectories = appDirectories
             hostStore = HostStore(appDirectories: appDirectories)
-            credentialStore = KeychainCredentialStore()
+            identityStore = SSHIdentityStore()
             trustStore = HostTrustStore(appDirectories: appDirectories)
             browserSettingsStore = BrowserSettingsStore(appDirectories: appDirectories)
             fileSessionManager = FileSessionManager(appDirectories: appDirectories)
             workingCopyManager = WorkingCopyManager(appDirectories: appDirectories)
             conflictResolver = ConflictResolver()
             previewStore = PreviewStore(appDirectories: appDirectories)
+            sshIdentity = try identityStore.loadOrCreateIdentity()
             hosts = try hostStore.load()
             selectedHostID = hosts.first?.id
         } catch {
@@ -68,16 +70,22 @@ final class AppModel {
         try trustStore.clearAll()
         try fileSessionManager.clearAll()
         try browserSettingsStore.save(.default)
-
-        for id in hostIDs {
-            try credentialStore.removePassword(for: id)
-        }
+        try identityStore.deleteIdentity()
+        sshIdentity = try identityStore.loadOrCreateIdentity()
 
         clearCachedHostArtifacts(for: hostIDs)
     }
 
-    func password(for hostID: HostRecord.ID) -> String {
-        (try? credentialStore.password(for: hostID)) ?? ""
+    var publicKeyOpenSSH: String {
+        sshIdentity.metadata.publicKeyOpenSSH
+    }
+
+    var publicKeyFingerprintSHA256: String {
+        sshIdentity.metadata.publicKeyFingerprintSHA256
+    }
+
+    func clientIdentity(for username: String) throws -> SSHClientIdentity {
+        try sshIdentity.clientIdentity(username: username)
     }
 
     func validatedHostRecord(
@@ -138,20 +146,12 @@ final class AppModel {
         hosts.sort(using: KeyPathComparator(\.nickname, order: .forward))
         try hostStore.save(hosts)
 
-        let password = draft.password.trimmingCharacters(in: .whitespacesAndNewlines)
-        if password.isEmpty {
-            try credentialStore.removePassword(for: record.id)
-        } else {
-            try credentialStore.setPassword(password, for: record.id)
-        }
-
         selectedHostID = record.id
         return record
     }
 
     private func removeAssociatedData(for hostIDs: [HostRecord.ID]) throws {
         for id in hostIDs {
-            try credentialStore.removePassword(for: id)
             try trustStore.removeTrust(for: id)
             try fileSessionManager.clearLastVisitedPath(for: id)
         }
