@@ -310,7 +310,7 @@ nonisolated final class SFTPRemoteFileSystem: RemoteFileSystem, @unchecked Senda
                     try childChannel.pipeline.syncOperations.addHandler(
                         SFTPChannelHandler(
                             onReady: { [weak self] in
-                                self?.sendInit()
+                                self?.requestInitialize()
                             },
                             onPacket: { [weak self] packet in
                                 self?.handlePacket(packet)
@@ -330,6 +330,12 @@ nonisolated final class SFTPRemoteFileSystem: RemoteFileSystem, @unchecked Senda
         }
     }
 
+    private func requestInitialize() {
+        workQueue.async {
+            self.sendInit()
+        }
+    }
+
     private func sendInit() {
         do {
             var packet = ByteBuffer()
@@ -337,7 +343,7 @@ nonisolated final class SFTPRemoteFileSystem: RemoteFileSystem, @unchecked Senda
             packet.writeInteger(UInt32(3))
             try writePacket(packet)
         } catch {
-            closeConnection(error: error)
+            requestDisconnect(error: error)
         }
     }
 
@@ -459,7 +465,7 @@ nonisolated final class SFTPRemoteFileSystem: RemoteFileSystem, @unchecked Senda
 
         if let group {
             self.group = nil
-            try? group.syncShutdownGracefully()
+            group.shutdownGracefully(queue: workQueue) { _ in }
         }
 
         isReady = false

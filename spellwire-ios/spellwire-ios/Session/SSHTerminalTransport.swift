@@ -187,7 +187,7 @@ nonisolated final class SSHTerminalTransport: TerminalTransport, @unchecked Send
 
         if let group {
             self.group = nil
-            try? group.syncShutdownGracefully()
+            group.shutdownGracefully(queue: workQueue) { _ in }
         }
 
         notifyDisconnect(error: error)
