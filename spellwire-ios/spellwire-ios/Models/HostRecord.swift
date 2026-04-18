@@ -8,6 +8,7 @@ nonisolated struct HostRecord: Codable, Identifiable, Hashable {
     var username: String
     var browserURLString: String?
     var browserUsesTunnel: Bool
+    var browserForwardedPort: Int?
     var prefersTmuxResume: Bool
     var tmuxSessionName: String?
     var createdAt: Date
@@ -21,6 +22,7 @@ nonisolated struct HostRecord: Codable, Identifiable, Hashable {
         username: String,
         browserURLString: String? = nil,
         browserUsesTunnel: Bool = false,
+        browserForwardedPort: Int? = nil,
         prefersTmuxResume: Bool = true,
         tmuxSessionName: String? = nil,
         createdAt: Date = .now,
@@ -33,6 +35,7 @@ nonisolated struct HostRecord: Codable, Identifiable, Hashable {
         self.username = username
         self.browserURLString = browserURLString
         self.browserUsesTunnel = browserUsesTunnel
+        self.browserForwardedPort = browserForwardedPort
         self.prefersTmuxResume = prefersTmuxResume
         self.tmuxSessionName = tmuxSessionName
         self.createdAt = createdAt

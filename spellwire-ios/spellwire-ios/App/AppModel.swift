@@ -97,6 +97,7 @@ final class AppModel {
         let username = draft.username.trimmingCharacters(in: .whitespacesAndNewlines)
         let nickname = draft.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
         let browserURL = draft.browserURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let browserForwardedPortText = draft.browserForwardedPort.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !hostname.isEmpty else {
             throw AppModelError.validation("Host is required.")
@@ -108,6 +109,23 @@ final class AppModel {
 
         guard let port = Int(draft.port), (1...65535).contains(port) else {
             throw AppModelError.validation("Port must be between 1 and 65535.")
+        }
+
+        let browserForwardedPort: Int?
+        if browserForwardedPortText.isEmpty {
+            browserForwardedPort = nil
+        } else if let parsedPort = Int(browserForwardedPortText), (1...65535).contains(parsedPort) {
+            browserForwardedPort = parsedPort
+        } else {
+            throw AppModelError.validation("Browser forwarded port must be between 1 and 65535.")
+        }
+
+        if draft.browserUsesTunnel, browserForwardedPort == nil {
+            throw AppModelError.validation("Browser forwarded port is required when using an SSH tunnel.")
+        }
+
+        if !draft.browserUsesTunnel, !browserURL.isEmpty, URL(string: browserURL) == nil {
+            throw AppModelError.validation("Browser URL is invalid.")
         }
 
         let tmuxSessionName = draft.useTmux
@@ -124,8 +142,9 @@ final class AppModel {
             hostname: hostname,
             port: port,
             username: username,
-            browserURLString: browserURL.isEmpty ? nil : browserURL,
+            browserURLString: draft.browserUsesTunnel ? nil : (browserURL.isEmpty ? nil : browserURL),
             browserUsesTunnel: draft.browserUsesTunnel,
+            browserForwardedPort: browserForwardedPort,
             prefersTmuxResume: draft.useTmux,
             tmuxSessionName: tmuxSessionName?.isEmpty == true ? nil : tmuxSessionName,
             createdAt: existingRecord?.createdAt ?? .now,
@@ -189,8 +208,9 @@ extension AppModel {
                 nickname: "Production",
                 hostname: "prod.example.com",
                 username: "deploy",
-                browserURLString: "https://localhost:3000",
+                browserURLString: nil,
                 browserUsesTunnel: true,
+                browserForwardedPort: 3000,
                 prefersTmuxResume: true,
                 tmuxSessionName: "prod"
             ),

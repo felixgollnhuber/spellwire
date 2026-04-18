@@ -33,31 +33,27 @@ final class HostBrowserCoordinator {
     let identity: SSHDeviceIdentity
     let trustStore: HostTrustStore
     let defaultScheme: String
+    let page: WebPage
 
     var state: State = .idle
-    var pageTitle = ""
-    var displayURL: URL?
     var requestedURL: URL?
-    var isLoading = false
-    var canGoBack = false
-    var canGoForward = false
     var pendingHostKeyChallenge: HostKeyChallenge?
-
-    fileprivate var reloadToken = 0
-    fileprivate var allowsLoopbackCertificateBypass = false
 
     private var portForwardService: LocalPortForwardService?
     private var pendingTrustReply: ((Bool) -> Void)?
     private var initialLoadTask: Task<Void, Never>?
-    private var webViewBack: (() -> Void)?
-    private var webViewForward: (() -> Void)?
-    private var webViewReload: (() -> Void)?
+    private var pageLoadTask: Task<Void, Never>?
+    private var lastLoadedURL: URL?
 
     init(host: HostRecord, identity: SSHDeviceIdentity, trustStore: HostTrustStore, defaultScheme: String) {
         self.host = host
         self.identity = identity
         self.trustStore = trustStore
         self.defaultScheme = defaultScheme
+
+        var configuration = WebPage.Configuration()
+        configuration.defaultNavigationPreferences.preferredContentMode = .mobile
+        page = WebPage(configuration: configuration)
     }
 
     func startIfNeeded() {
@@ -70,40 +66,15 @@ final class HostBrowserCoordinator {
     func stop() {
         initialLoadTask?.cancel()
         initialLoadTask = nil
+        pageLoadTask?.cancel()
+        pageLoadTask = nil
+        page.stopLoading()
 
         let service = portForwardService
         portForwardService = nil
         Task {
             await service?.stop()
         }
-    }
-
-    func reconnect() {
-        stop()
-        requestedURL = nil
-        displayURL = nil
-        pageTitle = ""
-        isLoading = false
-        canGoBack = false
-        canGoForward = false
-        state = .idle
-        pendingHostKeyChallenge = nil
-        pendingTrustReply = nil
-        reloadToken = 0
-        startIfNeeded()
-    }
-
-    func reload() {
-        reloadToken &+= 1
-        webViewReload?()
-    }
-
-    func goBack() {
-        webViewBack?()
-    }
-
-    func goForward() {
-        webViewForward?()
     }
 
     func resolveHostKeyChallenge(approved: Bool) {
@@ -126,59 +97,42 @@ final class HostBrowserCoordinator {
         reply?(approved)
     }
 
-    fileprivate func installWebViewActions(
-        back: @escaping () -> Void,
-        forward: @escaping () -> Void,
-        reload: @escaping () -> Void
-    ) {
-        webViewBack = back
-        webViewForward = forward
-        webViewReload = reload
-    }
+    func loadRequestedURLIfNeeded() async {
+        guard let requestedURL, lastLoadedURL != requestedURL else { return }
 
-    fileprivate func updateNavigationState(
-        currentURL: URL?,
-        title: String,
-        isLoading: Bool,
-        canGoBack: Bool,
-        canGoForward: Bool
-    ) {
-        if let currentURL {
-            displayURL = currentURL
+        pageLoadTask?.cancel()
+        lastLoadedURL = requestedURL
+        let nextState: State = host.browserUsesTunnel ? .tunnelReady : .connected
+        state = nextState
+
+        pageLoadTask = Task { [weak self] in
+            guard let self else { return }
+
+            do {
+                for try await _ in page.load(requestedURL) {}
+                if !Task.isCancelled {
+                    state = nextState
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                if Self.shouldIgnoreWebError(error) {
+                    return
+                }
+                state = .failed(error.localizedDescription)
+            }
         }
-        pageTitle = title
-        self.isLoading = isLoading
-        self.canGoBack = canGoBack
-        self.canGoForward = canGoForward
-
-        if case .failed = state {
-            return
-        }
-
-        state = host.browserUsesTunnel ? .tunnelReady : .connected
-    }
-
-    fileprivate func handleWebError(_ error: Error) {
-        if Self.shouldIgnoreWebError(error) {
-            return
-        }
-        state = .failed(error.localizedDescription)
-    }
-
-    fileprivate func shouldAcceptServerTrust(host: String) -> Bool {
-        allowsLoopbackCertificateBypass && (host == "127.0.0.1" || host == "localhost")
     }
 
     private func prepareInitialURL() async {
         do {
             let remoteURL = try normalizedRemoteURL()
-            displayURL = remoteURL
             state = .preparing
 
             if host.browserUsesTunnel {
-                let tunnelTargetPort = remoteURL.port ?? Self.defaultPort(for: remoteURL.scheme)
-                guard let tunnelTargetHost = remoteURL.host, let tunnelTargetPort else {
-                    throw TransportError.connectionFailed("Browser URL must include a host and port or scheme.")
+                let tunnelTargetPort = host.browserForwardedPort
+                guard let tunnelTargetPort else {
+                    throw TransportError.connectionFailed("Configure a forwarded port for the SSH tunnel.")
                 }
 
                 let portForwardService = LocalPortForwardService(
@@ -199,16 +153,14 @@ final class HostBrowserCoordinator {
                 self.portForwardService = portForwardService
 
                 let localPort = try await portForwardService.start(
-                    targetHost: tunnelTargetHost,
+                    targetHost: "127.0.0.1",
                     targetPort: tunnelTargetPort
                 )
 
                 requestedURL = Self.rewriteForLocalTunnel(remoteURL: remoteURL, localPort: localPort)
-                allowsLoopbackCertificateBypass = remoteURL.scheme?.lowercased() == "https"
                 state = .tunnelReady
             } else {
                 requestedURL = remoteURL
-                allowsLoopbackCertificateBypass = false
                 state = .connected
             }
         } catch {
@@ -217,6 +169,17 @@ final class HostBrowserCoordinator {
     }
 
     private func normalizedRemoteURL() throws -> URL {
+        if host.browserUsesTunnel {
+            guard let port = host.browserForwardedPort else {
+                throw TransportError.connectionFailed("Configure a forwarded port for this browser first.")
+            }
+
+            guard let url = URL(string: "http://127.0.0.1:\(port)") else {
+                throw TransportError.connectionFailed("The forwarded browser port is invalid.")
+            }
+            return url
+        }
+
         guard let rawURL = host.browserURLString?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawURL.isEmpty else {
             throw TransportError.connectionFailed("Configure a browser URL for this host first.")
@@ -226,7 +189,9 @@ final class HostBrowserCoordinator {
             return url
         }
 
-        guard let url = URL(string: "\(defaultScheme)://\(rawURL)") else {
+        let inferredScheme = host.browserUsesTunnel ? "http" : defaultScheme
+
+        guard let url = URL(string: "\(inferredScheme)://\(rawURL)") else {
             throw TransportError.connectionFailed("The browser URL is invalid.")
         }
         return url
@@ -237,17 +202,6 @@ final class HostBrowserCoordinator {
         components?.host = "127.0.0.1"
         components?.port = localPort
         return components?.url ?? remoteURL
-    }
-
-    private static func defaultPort(for scheme: String?) -> Int? {
-        switch scheme?.lowercased() {
-        case "http":
-            return 80
-        case "https":
-            return 443
-        default:
-            return nil
-        }
     }
 
     private static func shouldIgnoreWebError(_ error: Error) -> Bool {
@@ -264,14 +218,12 @@ final class HostBrowserCoordinator {
 
 struct HostBrowserView: View {
     @State private var coordinator: HostBrowserCoordinator
-    let onEditHost: () -> Void
 
     init(
         host: HostRecord,
         identity: SSHDeviceIdentity,
         trustStore: HostTrustStore,
-        defaultScheme: String,
-        onEditHost: @escaping () -> Void
+        defaultScheme: String
     ) {
         _coordinator = State(
             initialValue: HostBrowserCoordinator(
@@ -281,27 +233,22 @@ struct HostBrowserView: View {
                 defaultScheme: defaultScheme
             )
         )
-        self.onEditHost = onEditHost
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            statusBar
-            addressBar
-            BrowserWebView(coordinator: coordinator)
+        ZStack {
+            WebView(coordinator.page)
                 .background(Color(uiColor: .systemBackground))
+
+            overlay
         }
         .navigationTitle(coordinator.host.nickname)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(action: onEditHost) {
-                    Label("Edit Host", systemImage: "slider.horizontal.3")
-                }
-            }
-        }
         .task {
             coordinator.startIfNeeded()
+        }
+        .task(id: coordinator.requestedURL) {
+            await coordinator.loadRequestedURLIfNeeded()
         }
         .alert(
             "Trust Host Key",
@@ -325,168 +272,27 @@ struct HostBrowserView: View {
         }
     }
 
-    private var statusBar: some View {
-        HStack(spacing: 12) {
-            Label(
-                coordinator.state.title,
-                systemImage: coordinator.state == .failed(coordinator.state.title) ? "exclamationmark.triangle.fill" : "globe"
+    @ViewBuilder
+    private var overlay: some View {
+        switch coordinator.state {
+        case .idle, .preparing:
+            ProgressView("Preparing Browser…")
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        case .failed(let message) where coordinator.page.url == nil:
+            ContentUnavailableView(
+                "Couldn’t Open Browser",
+                systemImage: "globe.badge.chevron.backward",
+                description: Text(message)
             )
-            .font(.caption.weight(.semibold))
-            Spacer()
-            Button(action: coordinator.goBack) {
-                Image(systemName: "chevron.backward")
-            }
-            .disabled(!coordinator.canGoBack)
-
-            Button(action: coordinator.goForward) {
-                Image(systemName: "chevron.forward")
-            }
-            .disabled(!coordinator.canGoForward)
-
-            Button(coordinator.isLoading ? "Reloading" : "Reload") {
-                coordinator.reload()
-            }
-            .disabled(coordinator.requestedURL == nil)
-
-            Button("Reconnect") {
-                coordinator.reconnect()
+            .padding(.horizontal, 24)
+        default:
+            if coordinator.page.isLoading && coordinator.page.url == nil {
+                ProgressView()
+                    .padding(16)
+                    .background(.regularMaterial, in: Circle())
             }
         }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(Color(uiColor: .secondarySystemBackground))
-    }
-
-    private var addressBar: some View {
-        Text(coordinator.displayURL?.absoluteString ?? coordinator.host.browserURLString ?? "No URL configured")
-            .font(.caption.monospaced())
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(Color(uiColor: .tertiarySystemBackground))
-    }
-}
-
-private struct BrowserWebView: UIViewRepresentable {
-    let coordinator: HostBrowserCoordinator
-
-    func makeCoordinator() -> BrowserWebViewCoordinator {
-        BrowserWebViewCoordinator(owner: coordinator)
-    }
-
-    func makeUIView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.defaultWebpagePreferences.preferredContentMode = .mobile
-
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.navigationDelegate = context.coordinator
-        webView.allowsBackForwardNavigationGestures = true
-        webView.scrollView.keyboardDismissMode = .interactive
-
-        coordinator.installWebViewActions(
-            back: { [weak webView] in webView?.goBack() },
-            forward: { [weak webView] in webView?.goForward() },
-            reload: { [weak webView] in webView?.reload() }
-        )
-
-        if let url = coordinator.requestedURL {
-            context.coordinator.lastRequestedURL = url
-            webView.load(URLRequest(url: url))
-        }
-
-        return webView
-    }
-
-    func updateUIView(_ webView: WKWebView, context: Context) {
-        context.coordinator.owner = coordinator
-
-        if let url = coordinator.requestedURL,
-           context.coordinator.lastRequestedURL != url {
-            context.coordinator.lastRequestedURL = url
-            webView.load(URLRequest(url: url))
-        }
-
-        if context.coordinator.lastReloadToken != coordinator.reloadToken {
-            context.coordinator.lastReloadToken = coordinator.reloadToken
-            if webView.url == nil, let url = coordinator.requestedURL {
-                context.coordinator.lastRequestedURL = url
-                webView.load(URLRequest(url: url))
-            } else {
-                webView.reload()
-            }
-        }
-    }
-}
-
-private final class BrowserWebViewCoordinator: NSObject, WKNavigationDelegate {
-    var owner: HostBrowserCoordinator
-    var lastRequestedURL: URL?
-    var lastReloadToken = 0
-
-    init(owner: HostBrowserCoordinator) {
-        self.owner = owner
-    }
-
-    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        owner.updateNavigationState(
-            currentURL: webView.url,
-            title: webView.title ?? "",
-            isLoading: true,
-            canGoBack: webView.canGoBack,
-            canGoForward: webView.canGoForward
-        )
-    }
-
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        owner.updateNavigationState(
-            currentURL: webView.url,
-            title: webView.title ?? "",
-            isLoading: false,
-            canGoBack: webView.canGoBack,
-            canGoForward: webView.canGoForward
-        )
-    }
-
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        owner.handleWebError(TransportError.connectionFailed("The embedded browser process exited."))
-    }
-
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        owner.updateNavigationState(
-            currentURL: webView.url,
-            title: webView.title ?? "",
-            isLoading: false,
-            canGoBack: webView.canGoBack,
-            canGoForward: webView.canGoForward
-        )
-        owner.handleWebError(error)
-    }
-
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        owner.updateNavigationState(
-            currentURL: webView.url,
-            title: webView.title ?? "",
-            isLoading: false,
-            canGoBack: webView.canGoBack,
-            canGoForward: webView.canGoForward
-        )
-        owner.handleWebError(error)
-    }
-
-    func webView(
-        _ webView: WKWebView,
-        didReceive challenge: URLAuthenticationChallenge,
-        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
-    ) {
-        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-              owner.shouldAcceptServerTrust(host: challenge.protectionSpace.host),
-              let serverTrust = challenge.protectionSpace.serverTrust else {
-            completionHandler(.performDefaultHandling, nil)
-            return
-        }
-
-        completionHandler(.useCredential, URLCredential(trust: serverTrust))
     }
 }

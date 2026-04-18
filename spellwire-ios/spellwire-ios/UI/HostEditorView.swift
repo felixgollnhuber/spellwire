@@ -8,6 +8,7 @@ struct HostEditorDraft: Equatable {
     var username = ""
     var browserURL = ""
     var browserUsesTunnel = false
+    var browserForwardedPort = ""
     var useTmux = true
     var tmuxSessionName = "main"
 
@@ -24,6 +25,7 @@ struct HostEditorDraft: Equatable {
         username = host.username
         browserURL = host.browserURLString ?? ""
         browserUsesTunnel = host.browserUsesTunnel
+        browserForwardedPort = host.browserForwardedPort.map(String.init) ?? ""
         useTmux = host.prefersTmuxResume
         tmuxSessionName = host.tmuxSessionName ?? "main"
     }
@@ -104,18 +106,19 @@ struct HostEditorView: View {
                 }
 
                 Section("Browser") {
-                    TextField("URL", text: $draft.browserURL)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.URL)
-                        .autocorrectionDisabled()
                     Toggle("Use SSH tunnel", isOn: $draft.browserUsesTunnel)
+                    if draft.browserUsesTunnel {
+                        TextField("Forwarded Port", text: $draft.browserForwardedPort)
+                            .keyboardType(.numberPad)
+                    } else {
+                        TextField("URL", text: $draft.browserURL)
+                            .textInputAutocapitalization(.never)
+                            .keyboardType(.URL)
+                            .autocorrectionDisabled()
+                    }
                 }
 
                 Section("Spellwire Key") {
-                    Text(publicKey)
-                        .font(.footnote.monospaced())
-                        .textSelection(.enabled)
-
                     Button("Copy Public Key") {
                         UIPasteboard.general.string = publicKey
                     }

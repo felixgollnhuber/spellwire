@@ -61,31 +61,6 @@ struct CodexWorkspaceView: View {
                 }
             }
 
-            Section("Codex") {
-                if service.isLoadingList && service.threads.isEmpty {
-                    ProgressView("Syncing threads…")
-                        .frame(maxWidth: .infinity, alignment: .center)
-                } else if visibleProjects.isEmpty {
-                    ContentUnavailableView(
-                        "No Threads Yet",
-                        systemImage: "ellipsis.message",
-                        description: Text("Run Codex on the Mac, then pull to refresh.")
-                    )
-                } else {
-                    ForEach(visibleProjects) { project in
-                        Section(project.title) {
-                            ForEach(service.threadsForProject(projectID: project.id, matching: searchText)) { thread in
-                                NavigationLink {
-                                    CodexThreadView(service: service, thread: thread)
-                                } label: {
-                                    ThreadSummaryRow(thread: thread)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             Section("Tools") {
                 NavigationLink {
                     TerminalSessionView(
@@ -126,14 +101,15 @@ struct CodexWorkspaceView: View {
                         host: host,
                         identity: identity,
                         trustStore: trustStore,
-                        defaultScheme: browserDefaultScheme,
-                        onEditHost: onEditHost
+                        defaultScheme: browserDefaultScheme
                     )
                 } label: {
                     ToolRow(
                         title: "Preview Browser",
                         systemImage: host.browserUsesTunnel ? "point.3.connected.trianglepath.dotted" : "safari",
-                        description: host.browserURLString ?? "Preview discovery moves through the helper and SSH tunnels."
+                        description: host.browserUsesTunnel
+                            ? (host.browserForwardedPort.map { "Forward localhost:\($0) from the Mac." } ?? "Configure a forwarded preview port.")
+                            : (host.browserURLString ?? "Preview discovery moves through the helper and SSH tunnels.")
                     )
                 }
             }
@@ -145,6 +121,31 @@ struct CodexWorkspaceView: View {
 
                 Button(role: .destructive, action: onResetEverything) {
                     Label("Reset Everything and Test Onboarding", systemImage: "arrow.counterclockwise")
+                }
+            }
+
+            Section("Codex") {
+                if service.isLoadingList && service.threads.isEmpty {
+                    ProgressView("Syncing threads…")
+                        .frame(maxWidth: .infinity, alignment: .center)
+                } else if visibleProjects.isEmpty {
+                    ContentUnavailableView(
+                        "No Threads Yet",
+                        systemImage: "ellipsis.message",
+                        description: Text("Run Codex on the Mac, then pull to refresh.")
+                    )
+                } else {
+                    ForEach(visibleProjects) { project in
+                        Section(project.title) {
+                            ForEach(service.threadsForProject(projectID: project.id, matching: searchText)) { thread in
+                                NavigationLink {
+                                    CodexThreadView(service: service, thread: thread)
+                                } label: {
+                                    ThreadSummaryRow(thread: thread)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -233,7 +234,8 @@ private struct ThreadSummaryRow: View {
             Text(thread.preview.isEmpty ? thread.cwd : thread.preview)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
+                .lineLimit(1)
+                .truncationMode(.tail)
 
             HStack(spacing: 10) {
                 Label(thread.sourceKind, systemImage: thread.archived ? "archivebox.fill" : "ellipsis.message")
