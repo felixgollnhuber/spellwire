@@ -21,7 +21,7 @@ struct WelcomeExperienceView: View {
     @State private var connectionProbe = HostConnectionProbe()
     @State private var isFinishingSetup = false
     @State private var errorMessage: String?
-    @State private var showingShareSheet = false
+    @State private var shareItems: [Any] = []
     @FocusState private var focusedField: HostSetupField?
 
     var body: some View {
@@ -74,8 +74,13 @@ struct WelcomeExperienceView: View {
         .onDisappear {
             connectionProbe.disconnect()
         }
-        .sheet(isPresented: $showingShareSheet) {
-            ActivityView(activityItems: [appModel.publicKeyOpenSSH])
+        .sheet(
+            isPresented: Binding(
+                get: { !shareItems.isEmpty },
+                set: { if !$0 { shareItems = [] } }
+            )
+        ) {
+            ActivityView(activityItems: shareItems)
         }
     }
 
@@ -192,7 +197,7 @@ struct WelcomeExperienceView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("1. Enable Remote Login on your Mac.")
                     Text("2. Install the helper from npm and run `spellwire up`.")
-                    Text("3. Add this public key to `~/.ssh/authorized_keys`.")
+                    Text("3. Run the setup command on your Mac, or add this public key manually.")
                 }
                 .font(.spellwireBody(14, weight: .medium))
                 .foregroundStyle(SpellwirePalette.secondaryForeground)
@@ -210,8 +215,8 @@ struct WelcomeExperienceView: View {
                     }
                     .buttonStyle(.glass)
 
-                    Button("Share Key") {
-                        showingShareSheet = true
+                    Button("Share Command") {
+                        shareItems = [authorizedKeysInstallCommand]
                     }
                     .buttonStyle(.glass)
                 }
@@ -283,6 +288,10 @@ struct WelcomeExperienceView: View {
         case .failed:
             return nil
         }
+    }
+
+    private var authorizedKeysInstallCommand: String {
+        SSHSetupCommand.installAuthorizedKeyCommand(for: appModel.publicKeyOpenSSH)
     }
 
     private func connect() {
