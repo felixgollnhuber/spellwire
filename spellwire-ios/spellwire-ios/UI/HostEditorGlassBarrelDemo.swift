@@ -43,8 +43,6 @@ struct HostEditorGlassBarrelDemo: View {
 
     private let dragSlotSize: CGFloat = 44
     private let dragSensitivity: Double = 0.38
-
-    // Items per second.
     private let autoSpeed: Double = 0.85
 
     @State private var axis: BarrelAxis = .wheelPickerStyle
@@ -70,6 +68,7 @@ struct HostEditorGlassBarrelDemo: View {
                 )
 
                 ZStack {
+                    // Background.
                     shape
                         .fill(
                             LinearGradient(
@@ -83,8 +82,19 @@ struct HostEditorGlassBarrelDemo: View {
                             )
                         )
 
-                    // Only this part moves.
-                    // The glass pane does not get recreated every animation frame.
+                    // Glass base.
+                    // This is now BEHIND the text, so it does not blur the letters.
+                    shape
+                        .fill(.white.opacity(0.001))
+                        .liquidGlassPane(cornerRadius: cornerRadius)
+                        .allowsHitTesting(false)
+
+                    // Slight dimming so the text still feels inside the pane.
+                    shape
+                        .fill(.black.opacity(0.08))
+                        .allowsHitTesting(false)
+
+                    // Sharp text layer.
                     TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { timeline in
                         let elapsed = timeline.date.timeIntervalSinceReferenceDate - startTime
                         let autoPosition = elapsed * autoSpeed
@@ -102,19 +112,25 @@ struct HostEditorGlassBarrelDemo: View {
                         }
                     }
 
-                    // Dimming layer behind glass.
+                    // Non-blurring glass highlight on top.
                     shape
-                        .fill(.black.opacity(0.12))
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    .white.opacity(0.16),
+                                    .white.opacity(0.04),
+                                    .clear,
+                                    .black.opacity(0.10)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .blendMode(.screen)
                         .allowsHitTesting(false)
 
-                    // One Liquid Glass pane in front.
                     shape
-                        .fill(.white.opacity(0.001))
-                        .liquidGlassPane(cornerRadius: cornerRadius)
-                        .overlay {
-                            shape
-                                .stroke(.white.opacity(0.24), lineWidth: 1)
-                        }
+                        .stroke(.white.opacity(0.24), lineWidth: 1)
                         .allowsHitTesting(false)
                 }
                 .frame(width: paneWidth, height: paneHeight)
@@ -163,6 +179,8 @@ private struct TextBarrel: View {
     let position: Double
     let axis: BarrelAxis
 
+    @Environment(\.displayScale) private var displayScale
+
     private let wheelRadius: CGFloat = 94
     private let verticalRadius: CGFloat = 126
 
@@ -186,33 +204,32 @@ private struct TextBarrel: View {
                 let arc = progress * (.pi / 2)
 
                 let front = max(0, cos(arc))
-                let fade = max(0, min(1, (front - 0.06) / 0.94))
+                let fade = max(0, min(1, (front - 0.05) / 0.95))
 
                 let radius = axis == .vertical ? verticalRadius : wheelRadius
-                let travel = CGFloat(sin(arc)) * radius
+                let rawTravel = CGFloat(sin(arc)) * radius
+                let travel = pixelSnapped(rawTravel)
 
-                Text(text)
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                    .tracking(1.5)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .frame(width: 250, height: 44)
-                    .scaleEffect(
-                        x: axis == .vertical
-                            ? 0.72 + CGFloat(front) * 0.28
-                            : 0.92 + CGFloat(front) * 0.08,
-                        y: axis == .wheelPickerStyle
-                            ? 0.72 + CGFloat(front) * 0.28
-                            : 0.92 + CGFloat(front) * 0.08
-                    )
-                    .opacity(fade)
-                    .shadow(color: .black.opacity(0.55), radius: 12, y: 4)
-                    .offset(
-                        x: axis == .vertical ? travel : 0,
-                        y: axis == .wheelPickerStyle ? travel : 0
-                    )
-                    .zIndex(front)
+                // Use font size instead of scaleEffect.
+                // scaleEffect often makes moving text look soft.
+                let fontSize = 27 + CGFloat(front) * 8
+
+                if fade > 0.02 {
+                    Text(text)
+                        .font(.system(size: fontSize, weight: .bold, design: .rounded))
+                        .tracking(1.5)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .frame(width: 270, height: 44)
+                        .opacity(fade)
+                        .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+                        .offset(
+                            x: axis == .vertical ? travel : 0,
+                            y: axis == .wheelPickerStyle ? travel : 0
+                        )
+                        .zIndex(front)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -235,6 +252,12 @@ private struct TextBarrel: View {
         }
 
         return delta
+    }
+
+    private func pixelSnapped(_ value: CGFloat) -> CGFloat {
+        guard displayScale > 0 else { return value }
+
+        return (value * displayScale).rounded() / displayScale
     }
 }
 
