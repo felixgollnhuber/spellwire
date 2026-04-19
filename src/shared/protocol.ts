@@ -116,6 +116,8 @@ export interface CodexThreadSummary {
     lastTurnID: string | null;
 }
 
+export type CodexThreadHistoryMode = "recent" | "full";
+
 export type CodexTimelineContentPart =
     | { type: "text"; text: string }
     | { type: "mention"; name: string; path?: string | null }
@@ -252,6 +254,11 @@ export interface CodexThreadDetail {
     activeTurnID: string | null;
     recovery: CodexRecoveryState | null;
     runtime: CodexThreadRuntime;
+    hasOlderHistory: boolean;
+    historyMode: CodexThreadHistoryMode;
+    oldestLoadedItemID: string | null;
+    newestLoadedItemID: string | null;
+    gitRelevantPaths: string[];
 }
 
 export interface ReasoningEffortOption {
@@ -322,6 +329,13 @@ export interface ThreadsListParams {
 
 export interface ThreadCreateParams {
     cwd: string;
+}
+
+export interface ThreadDetailParams {
+    threadID: string;
+    historyMode?: CodexThreadHistoryMode | null;
+    windowSize?: number | null;
+    beforeItemID?: string | null;
 }
 
 export interface TurnPromptParams {

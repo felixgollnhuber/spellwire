@@ -171,7 +171,12 @@ private func makeThreadDetail(id: String, title: String) -> CodexThreadDetail {
             approvalPolicy: "never",
             sandbox: CodexSandboxPolicy(type: "dangerFullAccess"),
             git: CodexGitInfo(sha: nil, branch: "main", originURL: nil)
-        )
+        ),
+        hasOlderHistory: false,
+        historyMode: .recent,
+        oldestLoadedItemID: "item-\(id)",
+        newestLoadedItemID: "item-\(id)",
+        gitRelevantPaths: ["Sources/\(id).swift"]
     )
 }
 

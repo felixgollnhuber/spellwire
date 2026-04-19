@@ -128,6 +128,10 @@ test("detailFromThread preserves canonical timeline and appends unique recovery 
     assert.equal(detail.runtime.git?.branch, "main");
     assert.equal(detail.timeline.filter((item) => item.kind === "recovery").length, 1);
     assert.equal(detail.timeline.at(-1)?.body, "Recent rollout tail that was not yet reconciled.");
+    assert.equal(detail.historyMode, "full");
+    assert.equal(detail.hasOlderHistory, false);
+    assert.equal(detail.oldestLoadedItemID, detail.timeline[0]?.id ?? null);
+    assert.equal(detail.newestLoadedItemID, detail.timeline.at(-1)?.id ?? null);
     assert.equal(threadToSummary(archivedThread, true).sourceKind, "subAgent");
 });
 
@@ -184,4 +188,114 @@ test("detailFromThread preserves structured user-message content for images", ()
         { type: "image", url: "https://example.com/reference.png" },
     ]);
     assert.equal(userMessage?.body, "Please inspect this\n[image]\n[image]");
+});
+
+test("detailFromThread can return a recent window with full-thread gitRelevantPaths", () => {
+    const threadWithHistory = {
+        ...activeThread,
+        turns: Array.from({ length: 45 }, (_, turnIndex) => ({
+            id: `turn-${turnIndex + 1}`,
+            status: "completed",
+            startedAt: 200 + turnIndex,
+            completedAt: 200 + turnIndex,
+            items: [
+                {
+                    id: `user-${turnIndex + 1}`,
+                    type: "userMessage",
+                    content: [{ type: "text", text: `message-${turnIndex + 1}` }],
+                },
+                {
+                    id: `file-${turnIndex + 1}`,
+                    type: "fileChange",
+                    changes: [{ path: `Sources/File${turnIndex + 1}.swift`, changeType: "modified" }],
+                },
+            ],
+        })),
+    };
+
+    const project: CodexProject = {
+        id: threadWithHistory.cwd,
+        cwd: threadWithHistory.cwd,
+        title: "spellwire",
+        threadCount: 1,
+        activeThreadCount: 1,
+        archivedThreadCount: 0,
+        updatedAt: threadWithHistory.updatedAt,
+    };
+    const runtime = {
+        cwd: threadWithHistory.cwd,
+        model: "gpt-5.4",
+        modelProvider: "openai",
+        serviceTier: null,
+        reasoningEffort: "medium",
+        approvalPolicy: "never",
+        sandbox: { type: "dangerFullAccess" as const },
+        git: null,
+    };
+
+    const detail = detailFromThread(threadWithHistory, false, null, project, runtime, {
+        historyMode: "recent",
+        windowSize: 10,
+    });
+
+    assert.equal(detail.historyMode, "recent");
+    assert.equal(detail.timeline.length, 10);
+    assert.equal(detail.timeline[0]?.id, "user-41");
+    assert.equal(detail.timeline.at(-1)?.id, "file-45");
+    assert.equal(detail.hasOlderHistory, true);
+    assert.equal(detail.oldestLoadedItemID, "user-41");
+    assert.equal(detail.newestLoadedItemID, "file-45");
+    assert.equal(detail.gitRelevantPaths.length, 45);
+    assert.equal(detail.gitRelevantPaths[0], "Sources/File1.swift");
+    assert.equal(detail.gitRelevantPaths.at(-1), "Sources/File45.swift");
+});
+
+test("detailFromThread can page older history before a loaded item", () => {
+    const threadWithHistory = {
+        ...activeThread,
+        turns: Array.from({ length: 12 }, (_, turnIndex) => ({
+            id: `turn-${turnIndex + 1}`,
+            status: "completed",
+            startedAt: 300 + turnIndex,
+            completedAt: 300 + turnIndex,
+            items: [
+                {
+                    id: `agent-${turnIndex + 1}`,
+                    type: "agentMessage",
+                    text: `message-${turnIndex + 1}`,
+                },
+            ],
+        })),
+    };
+
+    const project: CodexProject = {
+        id: threadWithHistory.cwd,
+        cwd: threadWithHistory.cwd,
+        title: "spellwire",
+        threadCount: 1,
+        activeThreadCount: 1,
+        archivedThreadCount: 0,
+        updatedAt: threadWithHistory.updatedAt,
+    };
+    const runtime = {
+        cwd: threadWithHistory.cwd,
+        model: "gpt-5.4",
+        modelProvider: "openai",
+        serviceTier: null,
+        reasoningEffort: "medium",
+        approvalPolicy: "never",
+        sandbox: { type: "dangerFullAccess" as const },
+        git: null,
+    };
+
+    const detail = detailFromThread(threadWithHistory, false, null, project, runtime, {
+        historyMode: "recent",
+        windowSize: 4,
+        beforeItemID: "agent-9",
+    });
+
+    assert.deepEqual(detail.timeline.map((item) => item.id), ["agent-5", "agent-6", "agent-7", "agent-8"]);
+    assert.equal(detail.hasOlderHistory, true);
+    assert.equal(detail.oldestLoadedItemID, "agent-5");
+    assert.equal(detail.newestLoadedItemID, "agent-8");
 });

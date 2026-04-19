@@ -17,6 +17,7 @@ import type {
     GitDiffParams,
     GitStatusParams,
     ThreadCreateParams,
+    ThreadDetailParams,
     HelperEventEnvelope,
     HelperFailureResponseEnvelope,
     HelperRequestEnvelope,
@@ -53,6 +54,7 @@ const allSourceKinds = [
     "subAgentThreadSpawn",
     "subAgentOther",
 ];
+const defaultRecentThreadWindowSize = 80;
 
 interface RawThread {
     id: string;
@@ -301,9 +303,9 @@ export class SpellwireDaemon {
             case "threads.create":
                 return this.threadCreate(request.params as unknown as ThreadCreateParams);
             case "threads.open":
-                return this.threadDetail(String((request.params as unknown as { threadID?: string; threadId?: string }).threadID ?? (request.params as unknown as { threadID?: string; threadId?: string }).threadId ?? ""));
+                return this.threadDetail(this.threadDetailParams(request.params), true);
             case "threads.read":
-                return this.threadDetail(String((request.params as unknown as { threadID?: string; threadId?: string }).threadID ?? (request.params as unknown as { threadID?: string; threadId?: string }).threadId ?? ""), false);
+                return this.threadDetail(this.threadDetailParams(request.params), false);
             case "models.list":
                 return this.modelsList();
             case "turns.start":
@@ -390,7 +392,32 @@ export class SpellwireDaemon {
         );
     }
 
-    private async threadDetail(threadID: string, resume = true): Promise<CodexThreadDetail> {
+    private threadDetailParams(value: unknown): ThreadDetailParams {
+        const params = (value ?? {}) as {
+            threadID?: unknown;
+            threadId?: unknown;
+            historyMode?: unknown;
+            windowSize?: unknown;
+            beforeItemID?: unknown;
+            beforeItemId?: unknown;
+        };
+
+        return {
+            threadID: String(params.threadID ?? params.threadId ?? ""),
+            historyMode: params.historyMode === "recent" || params.historyMode === "full"
+                ? params.historyMode
+                : undefined,
+            windowSize: typeof params.windowSize === "number" && Number.isFinite(params.windowSize)
+                ? params.windowSize
+                : undefined,
+            beforeItemID: typeof (params.beforeItemID ?? params.beforeItemId) === "string"
+                ? String(params.beforeItemID ?? params.beforeItemId)
+                : undefined,
+        };
+    }
+
+    private async threadDetail(params: ThreadDetailParams, resume = true): Promise<CodexThreadDetail> {
+        const threadID = params.threadID;
         if (!threadID) {
             throw new Error("threadID is required.");
         }
@@ -425,6 +452,11 @@ export class SpellwireDaemon {
             recovery,
             project,
             runtime,
+            {
+                historyMode: params.historyMode ?? "full",
+                windowSize: params.historyMode === "recent" ? (params.windowSize ?? defaultRecentThreadWindowSize) : params.windowSize,
+                beforeItemID: params.beforeItemID ?? null,
+            },
         );
     }
 
@@ -480,7 +512,7 @@ export class SpellwireDaemon {
     }
 
     private async desktopOpen(params: DesktopOpenRequest): Promise<{ opened: boolean; bestEffort: boolean }> {
-        const detail = await this.threadDetail(params.threadID);
+        const detail = await this.threadDetail({ threadID: params.threadID }, true);
         return this.desktopBridge.openThread(params.threadID, detail.thread.cwd);
     }
 

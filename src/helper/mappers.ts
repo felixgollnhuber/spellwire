@@ -5,6 +5,7 @@ import type {
     CodexRecoveryState,
     CodexSandboxPolicy,
     CodexThreadDetail,
+    CodexThreadHistoryMode,
     CodexThreadRuntime,
     CodexTimelineContentPart,
     CodexThreadSummary,
@@ -45,6 +46,12 @@ interface RawThread {
         originUrl?: string | null;
     } | null;
     turns: RawTurn[];
+}
+
+interface DetailFromThreadOptions {
+    historyMode?: CodexThreadHistoryMode;
+    windowSize?: number | null;
+    beforeItemID?: string | null;
 }
 
 function mapGitInfo(gitInfo: RawThread["gitInfo"]): CodexGitInfo | null {
@@ -203,6 +210,67 @@ function summarizeFileChanges(changes: unknown): string {
         .join("\n");
 }
 
+function relevantPathsFromTimeline(timeline: CodexTimelineItem[]): string[] {
+    const uniquePaths = new Set<string>();
+
+    for (const item of timeline) {
+        if (item.kind !== "fileChange") {
+            continue;
+        }
+
+        for (const path of item.changedPaths ?? []) {
+            if (path) {
+                uniquePaths.add(path);
+            }
+        }
+    }
+
+    return [...uniquePaths];
+}
+
+function sliceTimelineWindow(
+    timeline: CodexTimelineItem[],
+    historyMode: CodexThreadHistoryMode,
+    windowSize: number | null | undefined,
+    beforeItemID: string | null | undefined,
+): {
+    timeline: CodexTimelineItem[];
+    hasOlderHistory: boolean;
+    oldestLoadedItemID: string | null;
+    newestLoadedItemID: string | null;
+} {
+    if (historyMode === "full") {
+        return {
+            timeline,
+            hasOlderHistory: false,
+            oldestLoadedItemID: timeline[0]?.id ?? null,
+            newestLoadedItemID: timeline.at(-1)?.id ?? null,
+        };
+    }
+
+    const resolvedWindowSize = Math.max(1, windowSize ?? timeline.length);
+    let endIndex = timeline.length;
+
+    if (beforeItemID) {
+        const beforeIndex = timeline.findIndex((item) => item.id === beforeItemID);
+        if (beforeIndex > 0) {
+            endIndex = beforeIndex;
+        } else if (beforeIndex == 0) {
+            endIndex = 0;
+        }
+    }
+
+    const startIndex = Math.max(0, endIndex - resolvedWindowSize);
+    const windowedTimeline = timeline.slice(startIndex, endIndex);
+
+    return {
+        timeline: windowedTimeline,
+        hasOlderHistory: startIndex > 0,
+        oldestLoadedItemID: windowedTimeline[0]?.id ?? null,
+        newestLoadedItemID: windowedTimeline.at(-1)?.id ?? null,
+    };
+}
+
 function timelineItemFromRawItem(turn: RawTurn, item: RawThreadItem): CodexTimelineItem {
     const base = {
         id: item.id,
@@ -351,6 +419,7 @@ export function detailFromThread(
     recovery: CodexRecoveryState | null,
     project: CodexProject,
     runtime: CodexThreadRuntime,
+    options: DetailFromThreadOptions = {},
 ): CodexThreadDetail {
     const summary = threadToSummary(thread, archived);
     const timeline = thread.turns
@@ -372,16 +441,24 @@ export function detailFromThread(
         }));
 
     const activeTurn = [...thread.turns].reverse().find((turn) => turn.status === "inProgress") ?? null;
+    const historyMode = options.historyMode ?? "full";
+    const fullTimeline = [...timeline, ...recoveryTimeline];
+    const historyWindow = sliceTimelineWindow(fullTimeline, historyMode, options.windowSize, options.beforeItemID);
 
     return {
         thread: summary,
         project,
-        timeline: [...timeline, ...recoveryTimeline],
+        timeline: historyWindow.timeline,
         activeTurnID: activeTurn?.id ?? null,
         recovery,
         runtime: {
             ...runtime,
             git: runtime.git ?? mapGitInfo(thread.gitInfo),
         },
+        hasOlderHistory: historyWindow.hasOlderHistory,
+        historyMode,
+        oldestLoadedItemID: historyWindow.oldestLoadedItemID,
+        newestLoadedItemID: historyWindow.newestLoadedItemID,
+        gitRelevantPaths: relevantPathsFromTimeline(timeline),
     };
 }

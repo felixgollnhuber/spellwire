@@ -21,7 +21,7 @@ Spellwire is not a hosted control plane, does not depend on a relay, and does no
 ## Current State
 
 - The repo now contains a buildable TypeScript helper scaffold at the repo root under `src/` plus npm metadata and tests.
-- `spellwire-ios/` now includes Ed25519 key onboarding, host fingerprint pinning, a shared SSH identity model, and a rudimentary Codex-first workspace for browsing projects and threads, reading history, sending prompts, interrupting turns, opening a thread on the Mac, and surfacing helper-owned Git status, diff, and commit actions for the selected thread `cwd`.
+- `spellwire-ios/` now includes Ed25519 key onboarding, host fingerprint pinning, a shared SSH identity model, and a rudimentary Codex-first workspace for browsing projects and threads, opening threads with a recent-history window, lazily loading older history, sending prompts, interrupting turns, opening a thread on the Mac, and surfacing helper-owned Git status, diff, and commit actions for the selected thread `cwd`.
 - The helper-owned sync layer, rollout recovery, desktop handoff, terminal, file manager, preview flows, and new Git working-tree actions exist as early implementations and are not production-complete yet.
 - The current docs must describe that reality honestly.
 
@@ -86,7 +86,7 @@ Agents must preserve this model:
 
 - Use paginated `thread/list` across relevant source kinds to discover all projects and chats, including archived threads.
 - Use `thread/resume` when opening or reattaching to a thread so the same thread id stays bound to the correct `cwd` and runtime context.
-- Use `thread/read(includeTurns=true)` for canonical history hydration and reconciliation.
+- Use `thread/read(includeTurns=true)` for canonical history hydration and reconciliation, with recent-window reads for fast initial open and older-history paging on demand.
 - Use live notifications such as `thread/*`, `turn/*`, `item/*/delta`, and `item/completed` for low-latency UI updates.
 - Use persisted rollout and session files in `~/.codex/sessions` as the recovery and catch-up path for running chats, context usage, off-screen runs, and desktop continuity.
 - Merge history item-aware, not `turnId`-only.

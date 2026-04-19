@@ -5,6 +5,7 @@ import Observation
 @Observable
 final class CodexService {
     private static let workspaceStaleAfter: TimeInterval = 12
+    private static let defaultRecentThreadWindowSize = 80
 
     let host: HostRecord
     let haptics: HapticsClient
@@ -28,10 +29,16 @@ final class CodexService {
     var isExecutingGitCommit = false
     var isLoadingModels = false
     var isLoadingBranches = false
+    var isLoadingOlderHistory = false
     var pendingHostKeyChallenge: HostKeyChallenge?
     var errorMessage: String?
+    var olderHistoryError: String?
     var isShowingCachedData = false
     var isReadOnlyFallback = false
+    var hasOlderHistory = false
+    var oldestLoadedItemID: String?
+    var newestLoadedItemID: String?
+    var threadTimelineRevision = 0
     var lastWorkspaceUpdatedAt: Date?
     var lastSelectedThreadUpdatedAt: Date?
     private(set) var runningThreadIDs = Set<String>()
@@ -157,7 +164,15 @@ final class CodexService {
     func open(_ thread: CodexThreadSummary) async {
         prepareToOpenThread(thread)
         hydrateThreadDetailFromCache(threadID: thread.id)
-        await loadThread(method: "threads.open")
+        await loadThread(
+            method: "threads.open",
+            request: ThreadSelectionRequest(
+                threadID: thread.id,
+                historyMode: .recent,
+                windowSize: Self.defaultRecentThreadWindowSize,
+                beforeItemID: nil
+            )
+        )
     }
 
     func createThread(in project: CodexProject) async -> CodexThreadSummary? {
@@ -195,8 +210,14 @@ final class CodexService {
         unreadThreadIDs.remove(thread.id)
         threadRefreshTask?.cancel()
         gitStatusRefreshTask?.cancel()
+        olderHistoryError = nil
+        isLoadingOlderHistory = false
         if threadDetail?.thread.id != thread.id {
             threadDetail = nil
+            hasOlderHistory = false
+            oldestLoadedItemID = nil
+            newestLoadedItemID = nil
+            bumpThreadTimelineRevision()
         }
         selectedThreadGitStatus = nil
         selectedThreadGitDiff = nil
@@ -206,7 +227,50 @@ final class CodexService {
     }
 
     func refreshSelectedThread(userInitiated: Bool = false) async {
-        await loadThread(method: "threads.read", userInitiated: userInitiated)
+        guard let selectedThread else { return }
+        await loadThread(
+            method: "threads.read",
+            userInitiated: userInitiated,
+            request: ThreadSelectionRequest(
+                threadID: selectedThread.id,
+                historyMode: .recent,
+                windowSize: Self.defaultRecentThreadWindowSize,
+                beforeItemID: nil
+            )
+        )
+    }
+
+    func loadOlderHistory() async {
+        guard let selectedThread, let threadDetail, threadDetail.thread.id == selectedThread.id else { return }
+        guard threadDetail.historyMode == .recent else { return }
+        guard threadDetail.hasOlderHistory else { return }
+        guard let beforeItemID = threadDetail.oldestLoadedItemID, !beforeItemID.isEmpty else { return }
+        guard !isLoadingOlderHistory else { return }
+
+        isLoadingOlderHistory = true
+        olderHistoryError = nil
+        defer { isLoadingOlderHistory = false }
+
+        do {
+            let olderPage: CodexThreadDetail = try await client.request(
+                method: "threads.read",
+                params: ThreadSelectionRequest(
+                    threadID: selectedThread.id,
+                    historyMode: .recent,
+                    windowSize: Self.defaultRecentThreadWindowSize,
+                    beforeItemID: beforeItemID
+                )
+            )
+            guard self.selectedThread?.id == selectedThread.id else { return }
+            mergeOlderHistoryPage(olderPage)
+            lastSelectedThreadUpdatedAt = .now
+            isShowingCachedData = false
+            isReadOnlyFallback = false
+            scheduleThreadCacheWrite()
+            errorMessage = nil
+        } catch {
+            olderHistoryError = error.localizedDescription
+        }
     }
 
     func send(
@@ -227,7 +291,7 @@ final class CodexService {
         guard !trimmedPrompt.isEmpty || !attachmentPaths.isEmpty else { return }
 
         let pendingID = "local:\(UUID().uuidString)"
-        var detailSnapshot = threadDetail
+        let detailSnapshot = threadDetail
         let requestCWD = detailSnapshot?.runtime.cwd
         let pendingContent = pendingUserMessageContent(
             prompt: trimmedPrompt,
@@ -235,8 +299,8 @@ final class CodexService {
             fallbackPaths: attachmentPaths
         )
 
-        if detailSnapshot?.thread.id == selectedThread.id {
-            detailSnapshot?.timeline.append(
+        if var detailSnapshot, detailSnapshot.thread.id == selectedThread.id {
+            detailSnapshot.timeline.append(
                 CodexTimelineItem(
                     id: pendingID,
                     turnID: selectedThread.lastTurnID ?? "pending",
@@ -250,7 +314,11 @@ final class CodexService {
                     source: "canonical"
                 )
             )
+            detailSnapshot.newestLoadedItemID = detailSnapshot.timeline.last?.id
+            detailSnapshot.oldestLoadedItemID = detailSnapshot.timeline.first?.id
             threadDetail = detailSnapshot
+            syncThreadHistoryStateFromDetail()
+            bumpThreadTimelineRevision()
             scheduleThreadCacheWrite()
         }
 
@@ -296,7 +364,9 @@ final class CodexService {
             if var failedDetail = threadDetail,
                let index = failedDetail.timeline.firstIndex(where: { $0.id == pendingID }) {
                 failedDetail.timeline.remove(at: index)
-                threadDetail = failedDetail
+                failedDetail.oldestLoadedItemID = failedDetail.timeline.first?.id
+                failedDetail.newestLoadedItemID = failedDetail.timeline.last?.id
+                applyThreadDetail(failedDetail)
                 scheduleThreadCacheWrite()
             }
             errorMessage = error.localizedDescription
@@ -317,7 +387,9 @@ final class CodexService {
                 method: "turns.interrupt",
                 params: TurnInterruptRequest(threadID: selectedThread.id, turnID: turnID)
             )
-            threadDetail?.activeTurnID = nil
+            _ = updateThreadDetail(matchingThreadID: selectedThread.id) { detail in
+                detail.activeTurnID = nil
+            }
             runningThreadIDs.remove(selectedThread.id)
             errorMessage = nil
             scheduleThreadCacheWrite()
@@ -407,8 +479,9 @@ final class CodexService {
             availableBranches = availableBranches.map { branch in
                 BranchInfo(name: branch.name, isCurrent: branch.name == result.currentBranch)
             }
-            if var currentRuntime = threadDetail?.runtime {
-                currentRuntime = CodexThreadRuntime(
+            _ = updateThreadDetail { detail in
+                let currentRuntime = detail.runtime
+                detail.runtime = CodexThreadRuntime(
                     cwd: currentRuntime.cwd,
                     model: currentRuntime.model,
                     modelProvider: currentRuntime.modelProvider,
@@ -422,7 +495,6 @@ final class CodexService {
                         originURL: currentRuntime.git?.originURL
                     )
                 )
-                threadDetail?.runtime = currentRuntime
             }
             persistBranches(cwd: cwd)
             scheduleThreadCacheWrite()
@@ -574,8 +646,9 @@ final class CodexService {
             if selectedThreadGitStatus?.hasChanges == true {
                 await loadGitDiff(force: true, reportErrors: false)
             }
-            if var runtime = threadDetail?.runtime {
-                runtime = CodexThreadRuntime(
+            _ = updateThreadDetail { detail in
+                let runtime = detail.runtime
+                detail.runtime = CodexThreadRuntime(
                     cwd: runtime.cwd,
                     model: runtime.model,
                     modelProvider: runtime.modelProvider,
@@ -589,7 +662,6 @@ final class CodexService {
                         originURL: runtime.git?.originURL
                     )
                 )
-                threadDetail?.runtime = runtime
             }
             errorMessage = nil
             haptics.play(.success)
@@ -660,23 +732,22 @@ final class CodexService {
     }
 
     var cacheStatusMessage: String? {
-        guard isShowingCachedData else { return nil }
+        guard isShowingCachedData, isReadOnlyFallback else { return nil }
 
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         let referenceDate = lastSelectedThreadUpdatedAt ?? lastWorkspaceUpdatedAt
         let timestampDescription = referenceDate.map { formatter.localizedString(for: $0, relativeTo: .now) } ?? "recently"
 
-        if isReadOnlyFallback {
-            return "Showing cached data from \(timestampDescription). Remote actions are disabled."
-        }
-
-        return "Showing cached data from \(timestampDescription) while refreshing."
+        return "Showing cached data from \(timestampDescription). Remote actions are disabled."
     }
 
-    private func loadThread(method: String, userInitiated: Bool = false) async {
-        guard let selectedThread else { return }
-        let requestedThreadID = selectedThread.id
+    private func loadThread(
+        method: String,
+        userInitiated: Bool = false,
+        request: ThreadSelectionRequest
+    ) async {
+        let requestedThreadID = request.threadID
 
         isLoadingThread = true
         defer { isLoadingThread = false }
@@ -684,14 +755,18 @@ final class CodexService {
         do {
             let detail: CodexThreadDetail = try await client.request(
                 method: method,
-                params: ThreadSelectionRequest(threadID: requestedThreadID)
+                params: request
             )
 
             guard self.selectedThread?.id == requestedThreadID else {
                 return
             }
 
-            threadDetail = detail
+            if request.historyMode == .recent, (method == "threads.read" || method == "threads.open") {
+                mergeRecentThreadDetail(detail)
+            } else {
+                applyThreadDetail(detail)
+            }
             if let index = threads.firstIndex(where: { $0.id == detail.thread.id }) {
                 threads[index] = detail.thread
             }
@@ -706,6 +781,7 @@ final class CodexService {
             lastSelectedThreadUpdatedAt = .now
             isShowingCachedData = false
             isReadOnlyFallback = false
+            olderHistoryError = nil
             scheduleThreadCacheWrite()
             await loadModelsIfNeeded()
 
@@ -833,7 +909,9 @@ final class CodexService {
                 unreadThreadIDs.remove(threadID)
             }
             if threadID == selectedThread?.id {
-                threadDetail?.activeTurnID = params?["turn"]?.objectValue?["id"]?.stringValue
+                _ = updateThreadDetail(matchingThreadID: threadID) { detail in
+                    detail.activeTurnID = params?["turn"]?.objectValue?["id"]?.stringValue
+                }
                 scheduleThreadCacheWrite()
             }
             scheduleWorkspaceRefresh()
@@ -847,7 +925,9 @@ final class CodexService {
                 }
             }
             if threadID == selectedThread?.id {
-                threadDetail?.activeTurnID = nil
+                _ = updateThreadDetail(matchingThreadID: threadID) { detail in
+                    detail.activeTurnID = nil
+                }
                 scheduleThreadReconciliation()
                 scheduleGitStatusRefresh()
                 scheduleThreadCacheWrite()
@@ -887,25 +967,36 @@ final class CodexService {
             return
         }
 
-        if let index = threadDetail?.timeline.firstIndex(where: { $0.id == itemID }) {
-            threadDetail?.timeline[index].body += delta
-            threadDetail?.timeline[index].status = "inProgress"
-        } else {
-            threadDetail?.timeline.append(
-                CodexTimelineItem(
-                    id: itemID,
-                    turnID: turnID ?? threadDetail?.activeTurnID ?? "active",
-                    kind: kind,
-                    title: title,
-                    body: delta,
-                    changedPaths: nil,
-                    content: nil,
-                    status: "inProgress",
-                    timestamp: Date().timeIntervalSince1970,
-                    source: "canonical"
+        let didUpdate = updateThreadDetail(matchingThreadID: threadID) { detail in
+            if let index = detail.timeline.firstIndex(where: { $0.id == itemID }) {
+                detail.timeline[index].body += delta
+                detail.timeline[index].status = "inProgress"
+            } else {
+                detail.timeline.append(
+                    CodexTimelineItem(
+                        id: itemID,
+                        turnID: turnID ?? detail.activeTurnID ?? "active",
+                        kind: kind,
+                        title: title,
+                        body: delta,
+                        changedPaths: nil,
+                        content: nil,
+                        status: "inProgress",
+                        timestamp: Date().timeIntervalSince1970,
+                        source: "canonical"
+                    )
                 )
-            )
+            }
+            detail.newestLoadedItemID = detail.timeline.last?.id
+            if detail.oldestLoadedItemID == nil {
+                detail.oldestLoadedItemID = detail.timeline.first?.id
+            }
         }
+        guard didUpdate else {
+            return
+        }
+        syncThreadHistoryStateFromDetail()
+        bumpThreadTimelineRevision()
         scheduleThreadCacheWrite()
     }
 
@@ -927,14 +1018,141 @@ final class CodexService {
     }
 
     private func mergeTimelineItem(_ mapped: CodexTimelineItem) {
-        if let index = threadDetail?.timeline.firstIndex(where: { $0.id == mapped.id }) {
-            threadDetail?.timeline[index] = mapped
-        } else if let pendingIndex = threadDetail?.timeline.firstIndex(where: { isMatchingPendingLocalMessage($0, canonical: mapped) }) {
-            threadDetail?.timeline[pendingIndex] = mapped
-        } else {
-            threadDetail?.timeline.append(mapped)
+        let didUpdate = updateThreadDetail { detail in
+            if let index = detail.timeline.firstIndex(where: { $0.id == mapped.id }) {
+                detail.timeline[index] = mapped
+            } else if let pendingIndex = detail.timeline.firstIndex(where: { isMatchingPendingLocalMessage($0, canonical: mapped) }) {
+                detail.timeline[pendingIndex] = mapped
+            } else {
+                detail.timeline.append(mapped)
+            }
+            if mapped.kind == "fileChange", let changedPaths = mapped.changedPaths, !changedPaths.isEmpty {
+                detail.gitRelevantPaths = orderedUniqueStrings(detail.gitRelevantPaths + changedPaths)
+            }
+            detail.newestLoadedItemID = detail.timeline.last?.id
+            if detail.oldestLoadedItemID == nil {
+                detail.oldestLoadedItemID = detail.timeline.first?.id
+            }
         }
+        guard didUpdate else {
+            return
+        }
+        syncThreadHistoryStateFromDetail()
+        bumpThreadTimelineRevision()
         scheduleThreadCacheWrite()
+    }
+
+    private func applyThreadDetail(_ detail: CodexThreadDetail) {
+        threadDetail = detail
+        syncThreadHistoryStateFromDetail()
+        bumpThreadTimelineRevision()
+    }
+
+    private func mergeRecentThreadDetail(_ liveDetail: CodexThreadDetail) {
+        guard let existing = threadDetail, existing.thread.id == liveDetail.thread.id else {
+            applyThreadDetail(liveDetail)
+            return
+        }
+
+        let olderPrefix = existingOlderPrefix(existing.timeline, overlappingOldestItemID: liveDetail.oldestLoadedItemID)
+        let pendingLocalItems = existing.timeline.filter { item in
+            guard item.id.hasPrefix("local:"), item.status == "pending" || item.status == "inProgress" else {
+                return false
+            }
+            return !liveDetail.timeline.contains(where: { isMatchingPendingLocalMessage(item, canonical: $0) })
+        }
+
+        var mergedDetail = liveDetail
+        mergedDetail.timeline = orderedUniqueTimelineItems(olderPrefix + liveDetail.timeline + pendingLocalItems)
+        if !olderPrefix.isEmpty {
+            mergedDetail.hasOlderHistory = existing.hasOlderHistory
+        }
+        mergedDetail.oldestLoadedItemID = mergedDetail.timeline.first?.id
+        mergedDetail.newestLoadedItemID = mergedDetail.timeline.last?.id
+        mergedDetail.gitRelevantPaths = orderedUniqueStrings(existing.gitRelevantPaths + liveDetail.gitRelevantPaths)
+        applyThreadDetail(mergedDetail)
+    }
+
+    private func mergeOlderHistoryPage(_ olderPage: CodexThreadDetail) {
+        guard var current = threadDetail, current.thread.id == olderPage.thread.id else {
+            applyThreadDetail(olderPage)
+            return
+        }
+
+        current.thread = olderPage.thread
+        current.project = olderPage.project
+        current.activeTurnID = olderPage.activeTurnID
+        current.runtime = olderPage.runtime
+        current.timeline = orderedUniqueTimelineItems(olderPage.timeline + current.timeline)
+        current.recovery = olderPage.recovery
+        current.hasOlderHistory = olderPage.hasOlderHistory
+        current.historyMode = olderPage.historyMode
+        current.oldestLoadedItemID = current.timeline.first?.id
+        current.newestLoadedItemID = current.timeline.last?.id
+        current.gitRelevantPaths = orderedUniqueStrings(olderPage.gitRelevantPaths + current.gitRelevantPaths)
+        applyThreadDetail(current)
+    }
+
+    private func existingOlderPrefix(
+        _ timeline: [CodexTimelineItem],
+        overlappingOldestItemID: String?
+    ) -> [CodexTimelineItem] {
+        guard let overlappingOldestItemID,
+              let overlapIndex = timeline.firstIndex(where: { $0.id == overlappingOldestItemID }) else {
+            return []
+        }
+
+        return Array(timeline.prefix(upTo: overlapIndex))
+    }
+
+    private func orderedUniqueTimelineItems(_ items: [CodexTimelineItem]) -> [CodexTimelineItem] {
+        var seen = Set<String>()
+        var ordered: [CodexTimelineItem] = []
+
+        for item in items {
+            if seen.insert(item.id).inserted {
+                ordered.append(item)
+            }
+        }
+
+        return ordered
+    }
+
+    private func orderedUniqueStrings(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+
+        for value in values where !value.isEmpty {
+            if seen.insert(value).inserted {
+                ordered.append(value)
+            }
+        }
+
+        return ordered
+    }
+
+    private func syncThreadHistoryStateFromDetail() {
+        hasOlderHistory = threadDetail?.hasOlderHistory ?? false
+        oldestLoadedItemID = threadDetail?.oldestLoadedItemID
+        newestLoadedItemID = threadDetail?.newestLoadedItemID
+    }
+
+    @discardableResult
+    private func updateThreadDetail(
+        matchingThreadID threadID: String? = nil,
+        _ update: (inout CodexThreadDetail) -> Void
+    ) -> Bool {
+        guard var detail = threadDetail else { return false }
+        if let threadID, detail.thread.id != threadID {
+            return false
+        }
+        update(&detail)
+        threadDetail = detail
+        return true
+    }
+
+    private func bumpThreadTimelineRevision() {
+        threadTimelineRevision &+= 1
     }
 
     private func isMatchingPendingLocalMessage(_ existing: CodexTimelineItem, canonical mapped: CodexTimelineItem) -> Bool {
@@ -1060,7 +1278,7 @@ final class CodexService {
 
     private func hydrateThreadDetailFromCache(threadID: String) {
         guard let threadDetailCacheStore, let entry = try? threadDetailCacheStore.entry(for: host.id, threadID: threadID) else { return }
-        threadDetail = entry.detail
+        applyThreadDetail(entry.detail)
         if let index = threads.firstIndex(where: { $0.id == entry.detail.thread.id }) {
             threads[index] = entry.detail.thread
         }
@@ -1238,26 +1456,27 @@ final class CodexService {
 
     private var currentThreadGitPaths: [String] {
         guard let detail = threadDetail else { return [] }
-        return CodexGitPresentation.relevantPaths(timeline: detail.timeline)
+        return detail.gitRelevantPaths
     }
 
     private func applyGitStatusToRuntime(_ status: CodexGitStatus) {
-        guard var runtime = threadDetail?.runtime else { return }
-        runtime = CodexThreadRuntime(
-            cwd: runtime.cwd,
-            model: runtime.model,
-            modelProvider: runtime.modelProvider,
-            serviceTier: runtime.serviceTier,
-            reasoningEffort: runtime.reasoningEffort,
-            approvalPolicy: runtime.approvalPolicy,
-            sandbox: runtime.sandbox,
-            git: CodexGitInfo(
-                sha: runtime.git?.sha,
-                branch: status.branch,
-                originURL: runtime.git?.originURL
+        _ = updateThreadDetail { detail in
+            let runtime = detail.runtime
+            detail.runtime = CodexThreadRuntime(
+                cwd: runtime.cwd,
+                model: runtime.model,
+                modelProvider: runtime.modelProvider,
+                serviceTier: runtime.serviceTier,
+                reasoningEffort: runtime.reasoningEffort,
+                approvalPolicy: runtime.approvalPolicy,
+                sandbox: runtime.sandbox,
+                git: CodexGitInfo(
+                    sha: runtime.git?.sha,
+                    branch: status.branch,
+                    originURL: runtime.git?.originURL
+                )
             )
-        )
-        threadDetail?.runtime = runtime
+        }
     }
 
     private func joinedStringArray(_ value: JSONValue?) -> String {
@@ -1277,6 +1496,9 @@ private struct ThreadsQuery: Codable {
 
 private struct ThreadSelectionRequest: Codable {
     let threadID: String
+    let historyMode: CodexThreadHistoryMode?
+    let windowSize: Int?
+    let beforeItemID: String?
 }
 
 private struct ThreadCreateRequest: Codable {

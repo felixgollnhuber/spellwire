@@ -143,6 +143,11 @@ struct CodexThreadSummary: Codable, Hashable, Sendable, Identifiable {
     let lastTurnID: String?
 }
 
+enum CodexThreadHistoryMode: String, Codable, Hashable, Sendable {
+    case recent
+    case full
+}
+
 struct CodexTimelineContentPart: Codable, Hashable, Sendable {
     let type: String
     let text: String?
@@ -355,11 +360,16 @@ struct CodexThreadRuntime: Codable, Hashable, Sendable {
 
 struct CodexThreadDetail: Codable, Hashable, Sendable {
     var thread: CodexThreadSummary
-    let project: CodexProject
+    var project: CodexProject
     var timeline: [CodexTimelineItem]
     var activeTurnID: String?
-    let recovery: CodexRecoveryState?
+    var recovery: CodexRecoveryState?
     var runtime: CodexThreadRuntime
+    var hasOlderHistory: Bool
+    var historyMode: CodexThreadHistoryMode
+    var oldestLoadedItemID: String?
+    var newestLoadedItemID: String?
+    var gitRelevantPaths: [String]
 }
 
 struct ReasoningEffortOption: Codable, Hashable, Sendable {

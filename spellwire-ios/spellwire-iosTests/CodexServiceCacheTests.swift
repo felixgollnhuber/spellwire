@@ -241,6 +241,192 @@ final class CodexServiceCacheTests: XCTestCase {
         XCTAssertEqual(service.threadDetail?.thread.title, "Detail B")
         XCTAssertFalse(service.isReadOnlyFallback)
     }
+
+    func testOpenRequestsRecentWindowAndUsesHelperGitRelevantPathsForGitStatus() async throws {
+        let directories = try makeAppDirectories()
+        let host = makeHost()
+        let trustStore = HostTrustStore(appDirectories: directories)
+        let thread = makeThreadSummary(id: "thread-recent", cwd: "/tmp/project-recent", title: "Recent", updatedAt: 10)
+        let detail = makeThreadDetail(
+            id: thread.id,
+            title: "Recent Detail",
+            timeline: makeTimelineItems(threadID: thread.id, range: 81...100),
+            hasOlderHistory: true,
+            oldestLoadedItemID: "item-81",
+            newestLoadedItemID: "item-100",
+            gitRelevantPaths: ["Sources/1.swift", "Sources/2.swift", "Sources/3.swift"]
+        )
+
+        var threadOpenPayload: [String: Any]?
+        var gitStatusPayload: [String: Any]?
+        let client = FakeHelperRPCClient { method, payload in
+            switch method {
+            case "threads.open":
+                threadOpenPayload = payload as? [String: Any]
+                return detail
+            case "models.list":
+                return [makeModelOption(id: "gpt-5.4")]
+            case "branches.list":
+                return [BranchInfo(name: "main", isCurrent: true)]
+            case "git.status":
+                gitStatusPayload = payload as? [String: Any]
+                return makeGitStatus(cwd: detail.runtime.cwd)
+            default:
+                throw TestError.unhandledMethod(method)
+            }
+        }
+
+        let service = CodexService(
+            host: host,
+            trustStore: trustStore,
+            haptics: .noop,
+            client: client,
+            workspaceSnapshotStore: CodexWorkspaceSnapshotStore(appDirectories: directories),
+            threadDetailCacheStore: CodexThreadDetailCacheStore(appDirectories: directories),
+            metadataCacheStore: CodexMetadataCacheStore(appDirectories: directories)
+        )
+
+        await service.open(thread)
+
+        XCTAssertEqual(threadOpenPayload?["threadID"] as? String, thread.id)
+        XCTAssertEqual(threadOpenPayload?["historyMode"] as? String, "recent")
+        XCTAssertEqual(threadOpenPayload?["windowSize"] as? Int, 80)
+        XCTAssertNil(threadOpenPayload?["beforeItemID"])
+        XCTAssertEqual(gitStatusPayload?["paths"] as? [String], detail.gitRelevantPaths)
+        XCTAssertEqual(service.threadDetail?.gitRelevantPaths, detail.gitRelevantPaths)
+    }
+
+    func testLoadOlderHistoryPrependsItemsWithoutDuplicates() async throws {
+        let host = makeHost()
+        let trustStore = HostTrustStore(appDirectories: try makeAppDirectories())
+        let thread = makeThreadSummary(id: "thread-history", cwd: "/tmp/project-history", title: "History", updatedAt: 10)
+        let recentDetail = makeThreadDetail(
+            id: thread.id,
+            title: "History Detail",
+            timeline: makeTimelineItems(threadID: thread.id, range: 81...100),
+            hasOlderHistory: true,
+            oldestLoadedItemID: "item-81",
+            newestLoadedItemID: "item-100",
+            gitRelevantPaths: ["Sources/history.swift"]
+        )
+        let olderPage = makeThreadDetail(
+            id: thread.id,
+            title: "History Detail",
+            timeline: makeTimelineItems(threadID: thread.id, range: 61...81),
+            hasOlderHistory: true,
+            oldestLoadedItemID: "item-61",
+            newestLoadedItemID: "item-81",
+            gitRelevantPaths: ["Sources/history.swift"]
+        )
+
+        let client = FakeHelperRPCClient { method, payload in
+            switch method {
+            case "threads.open":
+                return recentDetail
+            case "threads.read":
+                let request = payload as? [String: Any]
+                if request?["beforeItemID"] as? String == "item-81" {
+                    return olderPage
+                }
+                return recentDetail
+            case "models.list":
+                return [makeModelOption(id: "gpt-5.4")]
+            case "branches.list":
+                return [BranchInfo(name: "main", isCurrent: true)]
+            case "git.status":
+                return makeGitStatus(cwd: recentDetail.runtime.cwd)
+            default:
+                throw TestError.unhandledMethod(method)
+            }
+        }
+
+        let service = CodexService(
+            host: host,
+            trustStore: trustStore,
+            haptics: .noop,
+            client: client
+        )
+
+        await service.open(thread)
+        await service.loadOlderHistory()
+
+        XCTAssertEqual(service.threadDetail?.timeline.first?.id, "item-61")
+        XCTAssertEqual(service.threadDetail?.timeline.last?.id, "item-100")
+        XCTAssertEqual(Set(service.threadDetail?.timeline.map(\.id) ?? []).count, service.threadDetail?.timeline.count)
+        XCTAssertEqual(service.oldestLoadedItemID, "item-61")
+        XCTAssertTrue(service.hasOlderHistory)
+    }
+
+    func testRefreshSelectedThreadPreservesPreviouslyLoadedOlderHistory() async throws {
+        let host = makeHost()
+        let trustStore = HostTrustStore(appDirectories: try makeAppDirectories())
+        let thread = makeThreadSummary(id: "thread-refresh", cwd: "/tmp/project-refresh", title: "Refresh", updatedAt: 10)
+        let recentDetail = makeThreadDetail(
+            id: thread.id,
+            title: "Refresh Detail",
+            timeline: makeTimelineItems(threadID: thread.id, range: 81...100),
+            hasOlderHistory: true,
+            oldestLoadedItemID: "item-81",
+            newestLoadedItemID: "item-100",
+            gitRelevantPaths: ["Sources/refresh.swift"]
+        )
+        let olderPage = makeThreadDetail(
+            id: thread.id,
+            title: "Refresh Detail",
+            timeline: makeTimelineItems(threadID: thread.id, range: 61...80),
+            hasOlderHistory: false,
+            oldestLoadedItemID: "item-61",
+            newestLoadedItemID: "item-80",
+            gitRelevantPaths: ["Sources/refresh.swift"]
+        )
+        let refreshedRecentDetail = makeThreadDetail(
+            id: thread.id,
+            title: "Refresh Detail",
+            timeline: makeTimelineItems(threadID: thread.id, range: 82...101),
+            hasOlderHistory: true,
+            oldestLoadedItemID: "item-82",
+            newestLoadedItemID: "item-101",
+            gitRelevantPaths: ["Sources/refresh.swift", "Sources/new.swift"]
+        )
+
+        let client = FakeHelperRPCClient { method, payload in
+            switch method {
+            case "threads.open":
+                return recentDetail
+            case "threads.read":
+                let request = payload as? [String: Any]
+                if request?["beforeItemID"] as? String == "item-81" {
+                    return olderPage
+                }
+                return refreshedRecentDetail
+            case "models.list":
+                return [makeModelOption(id: "gpt-5.4")]
+            case "branches.list":
+                return [BranchInfo(name: "main", isCurrent: true)]
+            case "git.status":
+                return makeGitStatus(cwd: recentDetail.runtime.cwd)
+            default:
+                throw TestError.unhandledMethod(method)
+            }
+        }
+
+        let service = CodexService(
+            host: host,
+            trustStore: trustStore,
+            haptics: .noop,
+            client: client
+        )
+
+        await service.open(thread)
+        await service.loadOlderHistory()
+        await service.refreshSelectedThread()
+
+        XCTAssertEqual(service.threadDetail?.timeline.first?.id, "item-61")
+        XCTAssertEqual(service.threadDetail?.timeline.last?.id, "item-101")
+        XCTAssertEqual(service.hasOlderHistory, false)
+        XCTAssertTrue(service.threadDetail?.timeline.contains(where: { $0.id == "item-61" }) == true)
+        XCTAssertEqual(service.threadDetail?.gitRelevantPaths, ["Sources/refresh.swift", "Sources/new.swift"])
+    }
 }
 
 @MainActor
@@ -343,26 +529,35 @@ private func makeThreadSummary(id: String, cwd: String, title: String, updatedAt
     )
 }
 
-private func makeThreadDetail(id: String, title: String) -> CodexThreadDetail {
+private func makeThreadDetail(
+    id: String,
+    title: String,
+    timeline: [CodexTimelineItem]? = nil,
+    hasOlderHistory: Bool = false,
+    oldestLoadedItemID: String? = nil,
+    newestLoadedItemID: String? = nil,
+    gitRelevantPaths: [String] = []
+) -> CodexThreadDetail {
     let cwd = "/tmp/project-\(id)"
     let thread = makeThreadSummary(id: id, cwd: cwd, title: title, updatedAt: 10)
+    let resolvedTimeline = timeline ?? [
+        CodexTimelineItem(
+            id: "item-\(id)",
+            turnID: "turn-\(id)",
+            kind: "agentMessage",
+            title: "Codex",
+            body: title,
+            changedPaths: nil,
+            content: nil,
+            status: "completed",
+            timestamp: 10,
+            source: "canonical"
+        )
+    ]
     return CodexThreadDetail(
         thread: thread,
         project: makeProject(cwd: cwd, updatedAt: 10),
-        timeline: [
-            CodexTimelineItem(
-                id: "item-\(id)",
-                turnID: "turn-\(id)",
-                kind: "agentMessage",
-                title: "Codex",
-                body: title,
-                changedPaths: nil,
-                content: nil,
-                status: "completed",
-                timestamp: 10,
-                source: "canonical"
-            )
-        ],
+        timeline: resolvedTimeline,
         activeTurnID: nil,
         recovery: nil,
         runtime: CodexThreadRuntime(
@@ -374,8 +569,30 @@ private func makeThreadDetail(id: String, title: String) -> CodexThreadDetail {
             approvalPolicy: "never",
             sandbox: CodexSandboxPolicy(type: "dangerFullAccess"),
             git: CodexGitInfo(sha: nil, branch: "main", originURL: nil)
-        )
+        ),
+        hasOlderHistory: hasOlderHistory,
+        historyMode: .recent,
+        oldestLoadedItemID: oldestLoadedItemID ?? resolvedTimeline.first?.id,
+        newestLoadedItemID: newestLoadedItemID ?? resolvedTimeline.last?.id,
+        gitRelevantPaths: gitRelevantPaths.isEmpty ? ["Sources/\(id).swift"] : gitRelevantPaths
     )
+}
+
+private func makeTimelineItems(threadID: String, range: ClosedRange<Int>) -> [CodexTimelineItem] {
+    range.map { index in
+        CodexTimelineItem(
+            id: "item-\(index)",
+            turnID: "turn-\(threadID)",
+            kind: "agentMessage",
+            title: "Codex",
+            body: "Message \(index)",
+            changedPaths: nil,
+            content: nil,
+            status: "completed",
+            timestamp: TimeInterval(index),
+            source: "canonical"
+        )
+    }
 }
 
 private func makeModelOption(id: String) -> ModelOption {

@@ -41,8 +41,12 @@ struct HostEditorGlassBarrelDemo: View {
     private let paneHeight: CGFloat = 230
     private let cornerRadius: CGFloat = 34
 
+    private let edgeGlassHeight: CGFloat = 82
+
     private let dragSlotSize: CGFloat = 44
     private let dragSensitivity: Double = 0.38
+
+    // Items per second.
     private let autoSpeed: Double = 0.85
 
     @State private var axis: BarrelAxis = .wheelPickerStyle
@@ -62,19 +66,20 @@ struct HostEditorGlassBarrelDemo: View {
 
             GeometryReader { proxy in
                 let paneWidth = min(proxy.size.width, maxPaneWidth)
+
                 let shape = RoundedRectangle(
                     cornerRadius: cornerRadius,
                     style: .continuous
                 )
 
                 ZStack {
-                    // Background.
+                    // Background inside the card.
                     shape
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    Color(white: 0.14),
-                                    Color(white: 0.08),
+                                    Color(white: 0.18),
+                                    Color(white: 0.09),
                                     Color(white: 0.03)
                                 ],
                                 startPoint: .topLeading,
@@ -82,22 +87,14 @@ struct HostEditorGlassBarrelDemo: View {
                             )
                         )
 
-                    // Glass base.
-                    // This is now BEHIND the text, so it does not blur the letters.
-                    shape
-                        .fill(.white.opacity(0.001))
-                        .liquidGlassPane(cornerRadius: cornerRadius)
-                        .allowsHitTesting(false)
-
-                    // Slight dimming so the text still feels inside the pane.
-                    shape
-                        .fill(.black.opacity(0.08))
-                        .allowsHitTesting(false)
-
-                    // Sharp text layer.
+                    // Moving text barrel.
                     TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { timeline in
                         let elapsed = timeline.date.timeIntervalSinceReferenceDate - startTime
-                        let autoPosition = elapsed * autoSpeed
+
+                        let loopLength = Double(max(words.count, 1))
+                        let autoPosition = (elapsed * autoSpeed)
+                            .truncatingRemainder(dividingBy: loopLength)
+
                         let position = basePosition + autoPosition + dragPosition
 
                         TextBarrel(
@@ -112,31 +109,44 @@ struct HostEditorGlassBarrelDemo: View {
                         }
                     }
 
-                    // Non-blurring glass highlight on top.
+                    // Tiny full-pane tint so the card still reads as one surface.
+                    // This does not blur the readable center.
                     shape
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    .white.opacity(0.16),
-                                    .white.opacity(0.04),
-                                    .clear,
-                                    .black.opacity(0.10)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .blendMode(.screen)
+                        .fill(.black.opacity(0.035))
                         .allowsHitTesting(false)
 
+                    // Dimming only at the top and bottom.
+                    // The center stays clear so the text remains readable.
+                    EdgeDimmingLayer(
+                        cornerRadius: cornerRadius,
+                        edgeHeight: edgeGlassHeight
+                    )
+                    .allowsHitTesting(false)
+
+                    // Real Liquid Glass only at the top and bottom.
+                    // This gives the edges the heavy glass look without destroying the center.
+                    EdgeLiquidGlassLayer(
+                        cornerRadius: cornerRadius,
+                        edgeHeight: edgeGlassHeight
+                    )
+                    .allowsHitTesting(false)
+
+                    // Edge shine only.
+                    EdgeShineLayer(
+                        cornerRadius: cornerRadius,
+                        edgeHeight: edgeGlassHeight
+                    )
+                    .allowsHitTesting(false)
+
+                    // Full outline.
                     shape
-                        .stroke(.white.opacity(0.24), lineWidth: 1)
+                        .strokeBorder(.white.opacity(0.28), lineWidth: 1)
                         .allowsHitTesting(false)
                 }
                 .frame(width: paneWidth, height: paneHeight)
                 .clipShape(shape)
                 .contentShape(shape)
-                .shadow(color: .black.opacity(0.25), radius: 22, y: 14)
+                .shadow(color: .black.opacity(0.28), radius: 22, y: 14)
                 .gesture(
                     DragGesture()
                         .updating($dragPosition) { value, state, _ in
@@ -155,7 +165,7 @@ struct HostEditorGlassBarrelDemo: View {
             }
             .frame(height: paneHeight + 20)
 
-            Text("Text barrel in back, one clear glass pane in front. Switch between wheel-style vertical travel and side-to-side travel.")
+            Text("Text barrel behind edge-only Liquid Glass. The center stays readable while the top and bottom fade into glass.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -210,20 +220,20 @@ private struct TextBarrel: View {
                 let rawTravel = CGFloat(sin(arc)) * radius
                 let travel = pixelSnapped(rawTravel)
 
-                // Use font size instead of scaleEffect.
-                // scaleEffect often makes moving text look soft.
+                // Use font-size changes instead of scaleEffect.
+                // scaleEffect makes moving text softer.
                 let fontSize = 27 + CGFloat(front) * 8
 
                 if fade > 0.02 {
                     Text(text)
-                        .font(.system(size: fontSize, weight: .bold, design: .rounded))
+                        .font(.system(size: fontSize, weight: .heavy, design: .rounded))
                         .tracking(1.5)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                         .frame(width: 270, height: 44)
                         .opacity(fade)
-                        .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+                        .shadow(color: .black.opacity(0.45), radius: 2, y: 1)
                         .offset(
                             x: axis == .vertical ? travel : 0,
                             y: axis == .wheelPickerStyle ? travel : 0
@@ -261,6 +271,117 @@ private struct TextBarrel: View {
     }
 }
 
+private struct EdgeLiquidGlassLayer: View {
+    let cornerRadius: CGFloat
+    let edgeHeight: CGFloat
+
+    var body: some View {
+        let shape = RoundedRectangle(
+            cornerRadius: cornerRadius,
+            style: .continuous
+        )
+
+        shape
+            .fill(.white.opacity(0.001))
+            .liquidGlassPane(cornerRadius: cornerRadius)
+            .mask {
+                EdgeFadeMask(
+                    cornerRadius: cornerRadius,
+                    edgeHeight: edgeHeight
+                )
+            }
+    }
+}
+
+private struct EdgeDimmingLayer: View {
+    let cornerRadius: CGFloat
+    let edgeHeight: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.black.opacity(0.18))
+            .mask {
+                EdgeFadeMask(
+                    cornerRadius: cornerRadius,
+                    edgeHeight: edgeHeight
+                )
+            }
+    }
+}
+
+private struct EdgeShineLayer: View {
+    let cornerRadius: CGFloat
+    let edgeHeight: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(
+                LinearGradient(
+                    stops: [
+                        .init(color: .white.opacity(0.32), location: 0.00),
+                        .init(color: .white.opacity(0.12), location: 0.18),
+                        .init(color: .clear, location: 0.50),
+                        .init(color: .white.opacity(0.08), location: 0.82),
+                        .init(color: .white.opacity(0.22), location: 1.00)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .blendMode(.screen)
+            .mask {
+                EdgeFadeMask(
+                    cornerRadius: cornerRadius,
+                    edgeHeight: edgeHeight
+                )
+            }
+    }
+}
+
+private struct EdgeFadeMask: View {
+    let cornerRadius: CGFloat
+    let edgeHeight: CGFloat
+
+    var body: some View {
+        let shape = RoundedRectangle(
+            cornerRadius: cornerRadius,
+            style: .continuous
+        )
+
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                LinearGradient(
+                    stops: [
+                        .init(color: .white, location: 0.00),
+                        .init(color: .white.opacity(0.85), location: 0.28),
+                        .init(color: .white.opacity(0.35), location: 0.68),
+                        .init(color: .white.opacity(0.00), location: 1.00)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: min(edgeHeight, proxy.size.height / 2))
+
+                Spacer(minLength: 0)
+
+                LinearGradient(
+                    stops: [
+                        .init(color: .white.opacity(0.00), location: 0.00),
+                        .init(color: .white.opacity(0.35), location: 0.32),
+                        .init(color: .white.opacity(0.85), location: 0.72),
+                        .init(color: .white, location: 1.00)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: min(edgeHeight, proxy.size.height / 2))
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipShape(shape)
+        }
+    }
+}
+
 private extension View {
     @ViewBuilder
     func liquidGlassPane(cornerRadius: CGFloat) -> some View {
@@ -270,7 +391,7 @@ private extension View {
         )
 
         if #available(iOS 26.0, *) {
-            self.glassEffect(.clear, in: shape)
+            self.glassEffect(.regular, in: shape)
         } else {
             self.background(.ultraThinMaterial, in: shape)
         }

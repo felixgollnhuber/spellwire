@@ -3,6 +3,17 @@ import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
 
+private extension View {
+    @ViewBuilder
+    func threadScrollEdgeEffectsDisabled() -> some View {
+        if #available(iOS 26.0, *) {
+            self.scrollEdgeEffectHidden(true, for: .all)
+        } else {
+            self
+        }
+    }
+}
+
 struct CodexThreadChatView: View {
     let service: CodexService
     let thread: CodexThreadSummary
@@ -37,9 +48,15 @@ struct CodexThreadChatView: View {
     @State private var attachmentStager: ChatAttachmentStager
     @State private var imageResolver: ThreadImageResolver
     @State private var activeImagePreview: ThreadImagePreview?
+    @State private var pendingOlderHistoryAnchorID: String?
+    @State private var lastObservedLatestItemID: String?
+    @State private var composerHeight: CGFloat = 0
     @FocusState private var composerFocused: Bool
 
-    private let bottomAnchorID = "thread-bottom-anchor"
+    private let latestAnchorID = "thread-latest-anchor"
+    private let threadScrollSpace = "thread-scroll-space"
+    private let nearLatestThreshold: CGFloat = 96
+    private let edgeFadeHeight: CGFloat = 150
 
     init(
         service: CodexService,
@@ -72,140 +89,33 @@ struct CodexThreadChatView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            ScrollViewReader { proxy in
-                Group {
-                    if service.isLoadingThread && currentDetail == nil {
-                        ProgressView("Opening thread…")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if let detail = currentDetail {
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 22) {
-                                if let cacheStatusMessage = service.cacheStatusMessage {
-                                    cacheStatusBanner(cacheStatusMessage)
-                                }
-
-                                ForEach(detail.timeline) { item in
-                                    VStack(alignment: .leading, spacing: 12) {
-                                        ThreadTimelineRow(
-                                            item: item,
-                                            imageResolver: imageResolver,
-                                            isExpanded: expansionBinding(for: item),
-                                            isCurrentTurn: item.turnID == detail.activeTurnID,
-                                            onOpenImage: { preview in
-                                                activeImagePreview = preview
-                                            },
-                                            onOpenFileLink: { url in
-                                                handleMessageLink(url)
-                                            }
-                                        )
-                                        .id(item.id)
-
-                                        if item.id == inlineGitActionAnchorItemID, let gitStatus {
-                                            ThreadGitInlineActionRow(
-                                                status: gitStatus,
-                                                isCommitLoading: service.isExecutingGitCommit,
-                                                onOpenDiff: {
-                                                    Task {
-                                                        await openGitDiff()
-                                                    }
-                                                },
-                                                onCommit: {
-                                                    Task {
-                                                        await openGitCommitSheet()
-                                                    }
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-
-                                Color.clear
-                                    .frame(height: 1)
-                                    .id(bottomAnchorID)
-                                    .background(
-                                        GeometryReader { proxyView in
-                                            Color.clear.preference(
-                                                key: ThreadBottomProbePreferenceKey.self,
-                                                value: proxyView.frame(in: .named("thread-scroll")).maxY
-                                            )
-                                        }
-                                    )
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 20)
-                            .padding(.bottom, 12)
-                        }
-                        .scrollDismissesKeyboard(.immediately)
-                        .simultaneousGesture(
-                            DragGesture(minimumDistance: 4)
-                                .onChanged { _ in
-                                    if composerFocused {
-                                        composerFocused = false
-                                    }
-                                }
-                        )
-                        .coordinateSpace(name: "thread-scroll")
-                        .background(Color.black)
-                        .onPreferenceChange(ThreadBottomProbePreferenceKey.self) { value in
-                            isNearBottom = value <= geometry.size.height + 120
-                        }
-                        .onAppear {
-                            hydrateSelections(from: detail)
-                            hydratePreviewPort(for: detail.project.cwd)
-                            scrollToBottom(with: proxy, animated: false)
-                            service.beginGitStatusPolling()
-                        }
-                        .onChange(of: timelineSignature) { _, _ in
-                            expandActiveToolRows()
-                            if !didInitialScroll || isNearBottom {
-                                scrollToBottom(with: proxy, animated: didInitialScroll)
-                            }
-                        }
-                    } else {
-                        ContentUnavailableView(
-                            "No Timeline Yet",
-                            systemImage: "ellipsis.message",
-                            description: Text("Open the thread again or pull to refresh.")
-                        )
-                    }
-                }
-                .background(Color.black.ignoresSafeArea())
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    composerBar
-                        .background(Color.black.opacity(0.001))
-                }
-                .refreshable {
-                    await service.refreshSelectedThread(userInitiated: true)
-                }
-                .task(id: thread.id) {
-                    service.prepareToOpenThread(thread)
-                    await service.open(thread)
-                    service.beginGitStatusPolling()
-                }
-                .onChange(of: composerFocused) { _, isFocused in
-                    guard isFocused else { return }
-                    scrollToBottom(with: proxy, animated: true)
-                }
-            }
+        ScrollViewReader { proxy in
+            threadScreen(proxy: proxy)
         }
         .onDisappear {
             service.stopGitStatusPolling()
         }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 1) {
                     Text(currentDetail?.thread.title ?? thread.title)
                         .font(.headline)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(threadPrimaryTextColor)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                     Text(currentDetail?.runtime.cwd ?? thread.cwd)
                         .font(.caption)
-                        .foregroundStyle(.white.opacity(0.62))
+                        .foregroundStyle(threadSecondaryTextColor)
                         .lineLimit(1)
+                        .truncationMode(.middle)
                 }
+                .frame(maxWidth: 220)
+                .multilineTextAlignment(.center)
             }
+            .sharedBackgroundVisibility(.hidden)
 
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if let gitStatus, gitStatus.hasChanges {
@@ -240,11 +150,12 @@ struct CodexThreadChatView: View {
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(threadPrimaryTextColor)
                         .frame(minWidth: 28, minHeight: 28)
                 }
                 .buttonStyle(.plain)
             }
+            .sharedBackgroundVisibility(.hidden)
         }
         .photosPicker(isPresented: $showingPhotosPicker, selection: $photoItems, maxSelectionCount: 8, matching: .images)
         .onChange(of: photoItems) { _, newItems in
@@ -348,6 +259,54 @@ struct CodexThreadChatView: View {
         }
     }
 
+    private func threadScreen(proxy: ScrollViewProxy) -> some View {
+        ZStack(alignment: .bottomTrailing) {
+            Group {
+                if let detail = currentDetail {
+                    threadScrollView(detail: detail, proxy: proxy)
+                } else if service.isLoadingThread || service.isShowingCachedData {
+                    threadLoadingShell
+                } else {
+                    ContentUnavailableView(
+                        "No Timeline Yet",
+                        systemImage: "ellipsis.message",
+                        description: Text("Open the thread again or pull to refresh.")
+                    )
+                }
+            }
+
+            edgeFadeOverlay
+        }
+        .background(threadBackgroundColor.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            composerBar
+                .background(threadBackgroundColor.opacity(0.001))
+        }
+        .onPreferenceChange(ThreadComposerHeightPreferenceKey.self) { height in
+            composerHeight = height
+        }
+        .refreshable {
+            await service.refreshSelectedThread(userInitiated: true)
+        }
+        .task(id: thread.id) {
+            service.prepareToOpenThread(thread)
+            await service.open(thread)
+            service.beginGitStatusPolling()
+        }
+        .onChange(of: composerFocused) { _, isFocused in
+            guard isFocused else { return }
+            scrollToLatest(with: proxy, animated: true)
+        }
+        .onChange(of: service.threadTimelineRevision) { _, _ in
+            handleTimelineRevisionChange(with: proxy)
+        }
+        .onChange(of: service.oldestLoadedItemID) { previous, current in
+            guard let anchorID = pendingOlderHistoryAnchorID else { return }
+            guard previous != current else { return }
+            restoreScrollPosition(afterPrependingTo: anchorID, with: proxy)
+        }
+    }
+
     private var currentDetail: CodexThreadDetail? {
         guard service.threadDetail?.thread.id == thread.id else { return nil }
         return service.threadDetail
@@ -358,11 +317,20 @@ struct CodexThreadChatView: View {
         return service.selectedThreadGitStatus
     }
 
-    private var timelineSignature: String {
-        guard let detail = currentDetail else { return "empty" }
-        return detail.timeline
-            .map { "\($0.id):\($0.body.count):\($0.status ?? "")" }
-            .joined(separator: "|")
+    private var threadBackgroundColor: Color {
+        colorScheme == .dark ? .black : .white
+    }
+
+    private var threadPrimaryTextColor: Color {
+        colorScheme == .dark ? .white : .black
+    }
+
+    private var threadSecondaryTextColor: Color {
+        colorScheme == .dark ? .white.opacity(0.62) : .black.opacity(0.62)
+    }
+
+    private var threadTertiaryTextColor: Color {
+        colorScheme == .dark ? .white.opacity(0.38) : .black.opacity(0.38)
     }
 
     private var inlineGitActionAnchorItemID: String? {
@@ -563,6 +531,11 @@ struct CodexThreadChatView: View {
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .padding(.bottom, 10)
+        .background(
+            GeometryReader { geometry in
+                Color.clear.preference(key: ThreadComposerHeightPreferenceKey.self, value: geometry.size.height)
+            }
+        )
     }
 
     private var composerInputField: some View {
@@ -572,14 +545,14 @@ struct CodexThreadChatView: View {
                 .textInputAutocapitalization(.sentences)
                 .focused($composerFocused)
                 .font(.body)
-                .foregroundStyle(.white)
-                .tint(.white)
+                .foregroundStyle(threadPrimaryTextColor)
+                .tint(threadPrimaryTextColor)
                 .disabled(!service.canMutateRemotely)
 
             if composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text("Ask spellwire")
                     .font(.body)
-                    .foregroundStyle(.white.opacity(0.38))
+                    .foregroundStyle(threadTertiaryTextColor)
                     .allowsHitTesting(false)
             }
         }
@@ -595,14 +568,14 @@ struct CodexThreadChatView: View {
         } label: {
             Image(systemName: isSending ? "hourglass" : "arrow.up")
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(sendDisabled ? .white.opacity(0.45) : sendForeground)
+                .foregroundStyle(sendDisabled ? threadSecondaryTextColor : sendForeground)
                 .frame(width: 32, height: 32)
                 .background {
                     Circle()
                         .fill(sendDisabled ? Color.clear : sendBackground)
                         .overlay {
                             Circle()
-                                .strokeBorder(sendDisabled ? Color.white.opacity(0.08) : sendBackground.opacity(0), lineWidth: 1)
+                                .strokeBorder(sendDisabled ? threadSecondaryTextColor.opacity(0.16) : sendBackground.opacity(0), lineWidth: 1)
                         }
                 }
         }
@@ -648,10 +621,230 @@ struct CodexThreadChatView: View {
         service.availableBranches.first(where: { $0.isCurrent })?.name ?? currentDetail?.runtime.git?.branch
     }
 
-    private func scrollToBottom(with proxy: ScrollViewProxy, animated: Bool) {
+    private func threadScrollView(detail: CodexThreadDetail, proxy: ScrollViewProxy) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 22) {
+                latestAnchor
+
+                if let cacheStatusMessage = service.cacheStatusMessage {
+                    cacheStatusBanner(cacheStatusMessage)
+                        .scaleEffect(x: 1, y: -1)
+                }
+
+                ForEach(Array(detail.timeline.enumerated()).reversed(), id: \.element.id) { _, item in
+                    VStack(alignment: .leading, spacing: 12) {
+                        if item.id == inlineGitActionAnchorItemID, let gitStatus {
+                            ThreadGitInlineActionRow(
+                                status: gitStatus,
+                                isCommitLoading: service.isExecutingGitCommit,
+                                onOpenDiff: {
+                                    Task {
+                                        await openGitDiff()
+                                    }
+                                },
+                                onCommit: {
+                                    Task {
+                                        await openGitCommitSheet()
+                                    }
+                                }
+                            )
+                            .scaleEffect(x: 1, y: -1)
+                        }
+
+                        ThreadTimelineRow(
+                            item: item,
+                            imageResolver: imageResolver,
+                            isExpanded: expansionBinding(for: item),
+                            isCurrentTurn: item.turnID == detail.activeTurnID,
+                            onOpenImage: { preview in
+                                activeImagePreview = preview
+                            },
+                            onOpenFileLink: { url in
+                                handleMessageLink(url)
+                            }
+                        )
+                        .id(item.id)
+                        .scaleEffect(x: 1, y: -1)
+                    }
+                }
+
+                olderHistorySection(detail: detail)
+                    .scaleEffect(x: 1, y: -1)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
+        }
+        .coordinateSpace(name: threadScrollSpace)
+        .threadScrollEdgeEffectsDisabled()
+        .scaleEffect(x: 1, y: -1)
+        .contentShape(Rectangle())
+        .scrollDismissesKeyboard(.immediately)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 4)
+                .onChanged { _ in
+                    if composerFocused {
+                        composerFocused = false
+                    }
+                }
+        )
+        .background(threadBackgroundColor)
+        .onPreferenceChange(ThreadLatestAnchorPreferenceKey.self) { frame in
+            recomputeNearLatest(from: frame)
+        }
+        .onAppear {
+            hydrateSelections(from: detail)
+            hydratePreviewPort(for: detail.project.cwd)
+            expandActiveToolRows()
+            lastObservedLatestItemID = detail.timeline.last?.id
+            if !didInitialScroll {
+                scrollToLatest(with: proxy, animated: false)
+            }
+            service.beginGitStatusPolling()
+        }
+    }
+
+    private var threadLoadingShell: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 20) {
+                latestAnchor
+                ThreadLoadingShellCard(alignment: .trailing, width: 244)
+                    .scaleEffect(x: 1, y: -1)
+                ThreadLoadingShellCard(alignment: .leading, width: nil)
+                    .scaleEffect(x: 1, y: -1)
+                ThreadLoadingShellCard(alignment: .leading, width: 218)
+                    .scaleEffect(x: 1, y: -1)
+                ThreadInlineRefreshRow(title: "Opening latest messages…")
+                    .scaleEffect(x: 1, y: -1)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
+        }
+        .coordinateSpace(name: threadScrollSpace)
+        .threadScrollEdgeEffectsDisabled()
+        .scaleEffect(x: 1, y: -1)
+        .scrollDisabled(true)
+        .background(threadBackgroundColor)
+    }
+
+    @ViewBuilder
+    private func olderHistorySection(detail: CodexThreadDetail) -> some View {
+        VStack(spacing: 10) {
+            if service.isLoadingOlderHistory {
+                ThreadInlineRefreshRow(title: "Loading older messages…")
+            } else if let error = service.olderHistoryError {
+                Button {
+                    Task {
+                        await requestOlderHistoryIfNeeded(for: detail)
+                    }
+                } label: {
+                    Label(error, systemImage: "arrow.clockwise")
+                        .font(.spellwireBody(13, weight: .semibold))
+                        .foregroundStyle(threadSecondaryTextColor)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            } else if detail.hasOlderHistory {
+                Color.clear
+                    .frame(height: 1)
+                    .task(id: detail.oldestLoadedItemID) {
+                        await requestOlderHistoryIfNeeded(for: detail)
+                    }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var latestAnchor: some View {
+        Color.clear
+            .frame(height: 1)
+            .id(latestAnchorID)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: ThreadLatestAnchorPreferenceKey.self,
+                        value: proxy.frame(in: .named(threadScrollSpace))
+                    )
+                }
+            )
+            .scaleEffect(x: 1, y: -1)
+    }
+
+    private func requestOlderHistoryIfNeeded(for detail: CodexThreadDetail) async {
+        guard detail.hasOlderHistory else { return }
+        guard !service.isLoadingOlderHistory else { return }
+        pendingOlderHistoryAnchorID = detail.oldestLoadedItemID
+        await service.loadOlderHistory()
+    }
+
+    private func recomputeNearLatest(from frame: CGRect) {
+        guard frame != .zero else { return }
+        let distanceFromLatest = abs(frame.minY)
+        isNearBottom = distanceFromLatest < nearLatestThreshold
+    }
+
+    @ViewBuilder
+    private var edgeFadeOverlay: some View {
+        GeometryReader { geometry in
+            let c = threadBackgroundColor
+            let bottomPadding = max(0, composerHeight + geometry.safeAreaInsets.bottom)
+
+            VStack(spacing: 0) {
+                LinearGradient(
+                    colors: [c, c.opacity(0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: edgeFadeHeight)
+
+                Spacer(minLength: 0)
+
+                LinearGradient(
+                    colors: [c.opacity(0), c],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: edgeFadeHeight)
+                .padding(.bottom, bottomPadding)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .ignoresSafeArea(edges: [.top, .bottom])
+        .allowsHitTesting(false)
+    }
+
+    private func handleTimelineRevisionChange(with proxy: ScrollViewProxy) {
+        guard let detail = currentDetail else { return }
+        hydrateSelections(from: detail)
+        hydratePreviewPort(for: detail.project.cwd)
+        expandActiveToolRows()
+
+        let latestItemID = detail.timeline.last?.id
+        let latestIsPendingLocal = latestItemID?.hasPrefix("local:") == true
+
+        if !didInitialScroll {
+            scrollToLatest(with: proxy, animated: false)
+        } else if latestItemID != lastObservedLatestItemID, (isNearBottom || latestIsPendingLocal) {
+            scrollToLatest(with: proxy, animated: true)
+        }
+
+        lastObservedLatestItemID = latestItemID
+    }
+
+    private func restoreScrollPosition(afterPrependingTo anchorID: String, with proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                proxy.scrollTo(anchorID, anchor: .top)
+            }
+        }
+        pendingOlderHistoryAnchorID = nil
+    }
+
+    private func scrollToLatest(with proxy: ScrollViewProxy, animated: Bool) {
         DispatchQueue.main.async {
             let action = {
-                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+                proxy.scrollTo(latestAnchorID, anchor: .top)
             }
             if animated {
                 withAnimation(.easeOut(duration: 0.2), action)
@@ -831,11 +1024,11 @@ struct CodexThreadChatView: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: service.isReadOnlyFallback ? "icloud.slash" : "clock.arrow.trianglehead.counterclockwise.rotate.90")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.82))
+                .foregroundStyle(threadPrimaryTextColor.opacity(0.82))
 
             Text(message)
                 .font(.spellwireBody(14, weight: .medium))
-                .foregroundStyle(Color.white.opacity(0.82))
+                .foregroundStyle(threadPrimaryTextColor.opacity(0.82))
                 .multilineTextAlignment(.leading)
         }
         .padding(.horizontal, 14)
@@ -843,7 +1036,7 @@ struct CodexThreadChatView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(threadPrimaryTextColor.opacity(0.08))
         )
     }
 
@@ -856,13 +1049,96 @@ struct CodexThreadChatView: View {
     }
 }
 
+private struct ThreadInlineRefreshRow: View {
+    var title = "Refreshing latest messages…"
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var foregroundColor: Color {
+        colorScheme == .dark ? .white.opacity(0.76) : .black.opacity(0.76)
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+
+            Text(title)
+                .font(.spellwireBody(13, weight: .medium))
+                .foregroundStyle(foregroundColor)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(foregroundColor.opacity(0.08))
+        )
+    }
+}
+
+private struct ThreadLoadingShellCard: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    enum HorizontalAlignment {
+        case leading
+        case trailing
+    }
+
+    let alignment: HorizontalAlignment
+    let width: CGFloat?
+
+    private var baseColor: Color {
+        colorScheme == .dark ? .white : .black
+    }
+
+    var body: some View {
+        HStack {
+            if alignment == .trailing {
+                Spacer(minLength: 40)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(baseColor.opacity(0.16))
+                    .frame(width: width ?? 260, height: 14)
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(baseColor.opacity(0.10))
+                    .frame(width: min(width ?? 260, 180), height: 12)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(baseColor.opacity(alignment == .trailing ? 0.10 : 0.06))
+            )
+
+            if alignment == .leading {
+                Spacer(minLength: 40)
+            }
+        }
+    }
+}
+
 private struct ThreadTimelineRow: View {
+    @Environment(\.colorScheme) private var colorScheme
     let item: CodexTimelineItem
     let imageResolver: ThreadImageResolver
     @Binding var isExpanded: Bool
     let isCurrentTurn: Bool
     let onOpenImage: (ThreadImagePreview) -> Void
     let onOpenFileLink: (URL) -> OpenURLAction.Result
+
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? .white : .black
+    }
+
+    private var secondaryTextColor: Color {
+        colorScheme == .dark ? .white.opacity(0.72) : .black.opacity(0.72)
+    }
+
+    private var tertiaryTextColor: Color {
+        colorScheme == .dark ? .white.opacity(0.56) : .black.opacity(0.56)
+    }
 
     var body: some View {
         switch item.kind {
@@ -878,14 +1154,14 @@ private struct ThreadTimelineRow: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background(
-                        Color.white.opacity(0.10),
+                        primaryTextColor.opacity(0.10),
                         in: RoundedRectangle(cornerRadius: 18, style: .continuous)
                     )
             }
         case "agentMessage":
             VStack(alignment: .leading, spacing: 8) {
-                MarkdownMessageText(text: item.body, onOpenLink: onOpenFileLink)
-                    .foregroundStyle(.white)
+                MarkdownMessageText(itemID: item.id, text: item.body, onOpenLink: onOpenFileLink)
+                    .foregroundStyle(primaryTextColor)
                     .textSelection(.enabled)
 
                 metadataRow
@@ -895,18 +1171,18 @@ private struct ThreadTimelineRow: View {
                 if !item.body.isEmpty {
                     Text(item.body)
                         .font(.caption.monospaced())
-                        .foregroundStyle(.white.opacity(0.72))
+                        .foregroundStyle(secondaryTextColor)
                         .textSelection(.enabled)
                         .padding(.top, 4)
                 }
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: iconName)
-                        .foregroundStyle(.white.opacity(0.78))
+                        .foregroundStyle(secondaryTextColor)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(item.title)
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(primaryTextColor)
                             .lineLimit(1)
                         metadataRow
                     }
@@ -917,11 +1193,11 @@ private struct ThreadTimelineRow: View {
                     } else if let status = item.status {
                         Text(status.replacingOccurrences(of: "inProgress", with: "running"))
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.56))
+                            .foregroundStyle(tertiaryTextColor)
                     }
                 }
             }
-            .tint(.white)
+            .tint(primaryTextColor)
             .padding(.vertical, 2)
         }
     }
@@ -951,14 +1227,19 @@ private struct ThreadTimelineRow: View {
             }
         }
         .font(.caption2)
-        .foregroundStyle(.white.opacity(0.5))
+        .foregroundStyle(tertiaryTextColor)
     }
 }
 
 private struct ThreadUserMessageBubble: View {
+    @Environment(\.colorScheme) private var colorScheme
     let item: CodexTimelineItem
     let imageResolver: ThreadImageResolver
     let onOpenImage: (ThreadImagePreview) -> Void
+
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? .white : .black
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -967,7 +1248,7 @@ private struct ThreadUserMessageBubble: View {
                 case .text(let text):
                     Text(text)
                         .font(.body)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(primaryTextColor)
                         .multilineTextAlignment(.leading)
                         .textSelection(.enabled)
                 case .image(let part):
@@ -1273,18 +1554,60 @@ private struct ComposerIconButton: View {
     }
 }
 
+@MainActor
+private final class ThreadMarkdownCache {
+    static let shared = ThreadMarkdownCache()
+
+    private var cache: [MarkdownCacheKey: AttributedString] = [:]
+
+    func attributedString(itemID: String, text: String) -> AttributedString? {
+        let key = MarkdownCacheKey(itemID: itemID, text: text)
+        if let cached = cache[key] {
+            return cached
+        }
+        guard let parsed = try? AttributedString(markdown: text) else {
+            return nil
+        }
+        cache[key] = parsed
+        return parsed
+    }
+
+    private struct MarkdownCacheKey: Hashable {
+        let itemID: String
+        let text: String
+    }
+}
+
 private struct MarkdownMessageText: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let itemID: String
     let text: String
     let onOpenLink: (URL) -> OpenURLAction.Result
 
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? .white : .black
+    }
+
+    private func displayAttributedString(from attributed: AttributedString) -> AttributedString {
+        var display = attributed
+        for run in display.runs {
+            let range = run.range
+            if display[range].foregroundColor == nil {
+                display[range].foregroundColor = primaryTextColor
+            }
+        }
+        return display
+    }
+
     var body: some View {
-        if let attributed = try? AttributedString(markdown: text) {
-            Text(attributed)
+        if let attributed = ThreadMarkdownCache.shared.attributedString(itemID: itemID, text: text) {
+            Text(displayAttributedString(from: attributed))
                 .font(.body)
                 .environment(\.openURL, OpenURLAction(handler: onOpenLink))
         } else {
             Text(text)
                 .font(.body)
+                .foregroundStyle(primaryTextColor)
         }
     }
 }
@@ -1387,8 +1710,16 @@ private struct ThreadLinkedPathDestinationView: View {
     }
 }
 
-private struct ThreadBottomProbePreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = .greatestFiniteMagnitude
+private struct ThreadLatestAnchorPreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
+    }
+}
+
+private struct ThreadComposerHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()

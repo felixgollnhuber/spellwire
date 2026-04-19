@@ -18,7 +18,7 @@ It assumes:
 - Milestone 2 is scaffolded in code: the repo now ships a buildable TypeScript `spellwire` helper with the public CLI contract, LaunchAgent plumbing, daemon socket bridge, logs, doctor/status flows, and JSON RPC transport.
 - Milestone 3 is partially implemented in `spellwire-ios/`: the iPhone app now generates and stores an Ed25519 key, exports the OpenSSH public key, and pins host fingerprints instead of storing passwords.
 - Milestone 4 is partially implemented: the helper owns Codex app-server attachment, project/thread listing, thread open/read, turn send/steer/interrupt, desktop handoff, preview discovery, and rollout-tail recovery scaffolding.
-- Milestone 5 has a rudimentary interactive iPhone surface: browse projects and threads, open a thread, stream deltas, send prompts, interrupt, refresh, hand off to the Mac, and surface helper-owned Git working-tree state for the selected thread.
+- Milestone 5 has a rudimentary interactive iPhone surface: browse projects and threads, open a thread into a recent-history window, lazily page older history, stream deltas, send prompts, interrupt, refresh, hand off to the Mac, and surface helper-owned Git working-tree state for the selected thread.
 - Milestones 6 through 8 remain early scaffolds. Terminal, files, and previews are secondary surfaces and not production-ready.
 
 ## Milestone 1: Docs and License Baseline
@@ -128,7 +128,7 @@ Make Spellwire reflect the full local Codex environment instead of a single visi
 - paginated `thread/list` across relevant source kinds
 - archived thread discovery
 - `thread/resume` with stable thread-to-`cwd` binding
-- `thread/read(includeTurns=true)` hydration
+- `thread/read(includeTurns=true)` hydration, including recent-window reads for fast open plus older-history paging
 - live notification handling for `thread/*`, `turn/*`, `item/*/delta`, and `item/completed`
 - rollout and session-file recovery under `~/.codex/sessions`
 - active-thread memory and explicit thread opening in `Codex.app`
@@ -162,7 +162,7 @@ Turn the sync core into a usable iPhone-first Codex interface.
 
 - project and thread browsing
 - active and archived thread handling
-- full-history timeline rendering
+- recent-window-first timeline rendering with lazy older-history paging and reconciliation back to canonical thread state
 - thread open, continue, and state refresh flows
 - helper-owned Git status refresh for the selected thread `cwd`
 - thread-header diff pill, structured diff viewer, and latest-agent inline Git actions

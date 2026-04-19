@@ -4,7 +4,7 @@
 
 Spellwire is an iPhone-first remote control for Codex on macOS. It connects directly to your Mac over SSH on the local network or through Tailscale, keeps its view aligned with the same local Codex environment used by `Codex.app`, and does not depend on a relay or hosted control plane.
 
-> Status: alpha. This repo now includes a buildable TypeScript helper scaffold in `src/` and a rudimentary interactive iPhone client in `spellwire-ios/`. Helper-owned Codex sync, Git status and commit flows, rollout recovery, terminal, files, and preview surfaces are present as early implementations and are not production-ready yet.
+> Status: alpha. This repo now includes a buildable TypeScript helper scaffold in `src/` and a rudimentary interactive iPhone client in `spellwire-ios/`. Helper-owned Codex sync, recent-window thread opens with lazy older-history paging, Git status and commit flows, rollout recovery, terminal, files, and preview surfaces are present as early implementations and are not production-ready yet.
 
 ![Platform](https://img.shields.io/badge/platform-iOS%2026.4%2B%20%7C%20macOS-black)
 ![Transport](https://img.shields.io/badge/transport-SSH%20only-111827)
@@ -25,7 +25,7 @@ Spellwire is an iPhone-first remote control for Codex on macOS. It connects dire
 ### Codex
 
 - Browse multiple projects and multiple chats from the same Mac.
-- Keep the full local Codex history visible on iPhone.
+- Keep the full local Codex history visible on iPhone, with fast recent-window opens and lazy older-history loading for large chats.
 - Reattach to the correct thread, `cwd`, and runtime context instead of following only the thread currently open on the desktop.
 - View helper-owned Git working-tree counts and structured diffs for the selected thread `cwd`, then commit, push to `origin`, or open a GitHub pull request from the latest agent turn when supported.
 
@@ -115,10 +115,10 @@ Spellwire's helper-owned sync contract is:
 
 - Use paginated `thread/list` across relevant source kinds to discover all projects and chats, including archived threads.
 - Use `thread/resume` when opening or reattaching to a thread so the same thread id stays bound to the right `cwd` and runtime context.
-- Use `thread/read(includeTurns=true)` for canonical history hydration and reconciliation.
+- Use `thread/read(includeTurns=true)` for canonical history hydration and reconciliation, with recent-window reads for fast initial opens and older-history paging when the user reaches the top of the loaded chat.
 - Use live notifications such as `thread/*`, `turn/*`, `item/*/delta`, and `item/completed` for low-latency UI updates.
 - Use persisted rollout and session files in `~/.codex/sessions` as the recovery and catch-up path for running chats, context-window usage, off-screen runs, and desktop continuity.
-- Merge history item-aware, not `turnId`-only. For huge or still-running chats, allow a recent-window merge first and run canonical reconciliation afterward.
+- Merge history item-aware, not `turnId`-only. For huge or still-running chats, open with a recent window first, lazily page older history, and run canonical reconciliation afterward.
 - Keep the mobile app independent from whichever desktop thread is currently selected in `Codex.app`.
 - Keep Git working-tree status, diff rendering data, and commit mutation flows as helper-owned adjunct state instead of folding them into `thread/read`.
 
