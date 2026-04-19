@@ -220,11 +220,11 @@ struct CodexThreadChatView: View {
                     Button("Terminal", systemImage: "terminal") {
                         activeSheet = .terminal
                     }
-                    Button("File Browser", systemImage: "folder") {
+                    Button("File Browser", systemImage: "folder.badge.gearshape") {
                         activeSheet = .files
                     }
                     if let previewPort {
-                        Button("Web Browser", systemImage: "globe") {
+                        Button("Web Browser", systemImage: "safari") {
                             activeSheet = .preview(port: previewPort)
                         }
                         Button("Edit Preview Port", systemImage: "pencil") {
@@ -232,18 +232,18 @@ struct CodexThreadChatView: View {
                             showingPreviewPortPrompt = true
                         }
                     } else {
-                        Button("Web Browser", systemImage: "globe") {
+                        Button("Web Browser", systemImage: "safari") {
                             previewPortDraft = "3000"
                             showingPreviewPortPrompt = true
                         }
                     }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(.white)
-                        .frame(width: 34, height: 34)
-                        .background(Color.white.opacity(0.08), in: Circle())
+                        .frame(minWidth: 28, minHeight: 28)
                 }
+                .buttonStyle(.plain)
             }
         }
         .photosPicker(isPresented: $showingPhotosPicker, selection: $photoItems, maxSelectionCount: 8, matching: .images)

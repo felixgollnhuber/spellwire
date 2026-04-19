@@ -34,6 +34,10 @@ struct CodexWorkspaceView: View {
     private let searchHeaderHeight: CGFloat = 50
     private let searchHeaderTopSpacing: CGFloat = 115
 
+    private var workspaceLoadKey: String {
+        "\(host.id.uuidString)-\(host.updatedAt.timeIntervalSince1970)"
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             ScrollView {
@@ -71,7 +75,7 @@ struct CodexWorkspaceView: View {
                 actionsToolbarMenu
             }
         }
-        .task(id: host.id) {
+        .task(id: workspaceLoadKey) {
             if service.projects.isEmpty && service.threads.isEmpty {
                 await service.loadInitialData()
             } else {
@@ -502,9 +506,6 @@ private struct WorkspaceAnimatedSearchField: View {
 private struct WorkspaceSearchStatusIcon: View {
     let status: WorkspaceSearchFieldStatus
 
-    @State private var spin = false
-    @State private var hueShift = false
-
     var body: some View {
         ZStack {
             switch status {
@@ -515,30 +516,8 @@ private struct WorkspaceSearchStatusIcon: View {
                     .foregroundStyle(Color.white.opacity(0.62))
 
             case .refreshing:
-                Image(systemName: "arrow.trianglehead.2.clockwise")
+                RefreshingWorkspaceSearchStatusIcon()
                     .id("refreshing")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [
-                                .mint,
-                                .cyan,
-                                .blue,
-                                .purple,
-                                .mint,
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .rotationEffect(.degrees(spin ? 360 : 0))
-                    .hueRotation(.degrees(hueShift ? 70 : 0))
-                    .onAppear {
-                        spin = true
-                        hueShift = true
-                    }
-                    .animation(.linear(duration: 0.85).repeatForever(autoreverses: false), value: spin)
-                    .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: hueShift)
 
             case .success:
                 Image(systemName: "checkmark.circle.fill")
@@ -556,6 +535,34 @@ private struct WorkspaceSearchStatusIcon: View {
         )
         .contentTransition(.opacity)
         .animation(.easeInOut(duration: 0.2), value: status)
+    }
+}
+
+private struct RefreshingWorkspaceSearchStatusIcon: View {
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            let rotation = (t * 250) + (sin(t * 2.8) * 34)
+            let hue = sin(t * 1.8) * 36
+
+            Image(systemName: "arrow.trianglehead.2.clockwise")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [
+                            .mint,
+                            .cyan,
+                            .blue,
+                            .purple,
+                            .mint,
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .rotationEffect(.degrees(rotation))
+                .hueRotation(.degrees(hue))
+        }
     }
 }
 
@@ -699,42 +706,33 @@ private struct ThreadIndicatorView: View {
 private struct WorkspaceSkeleton: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            ForEach(ProjectThreadSkeleton.projects) { skeleton in
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 10) {
-                        Circle()
-                            .fill(Color.white.opacity(0.16))
-                            .frame(width: 14, height: 14)
+            ForEach(ProjectThreadSkeleton.cards) { skeleton in
+                VStack(alignment: .leading, spacing: 16) {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(0.15))
+                        .frame(width: skeleton.titleWidth, height: 24)
 
-                        Text(skeleton.title)
-                            .font(.spellwireBody(20, weight: .semibold))
-                            .redacted(reason: .placeholder)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(0.11))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 16)
 
-                        Spacer()
-
-                        Circle()
-                            .fill(Color.white.opacity(0.12))
-                            .frame(width: 30, height: 30)
-                    }
-                    .modifier(ShimmerEffect())
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(skeleton.rows) { row in
-                            HStack {
-                                Text(row.title)
-                                    .font(.spellwireBody(17, weight: .medium))
-                                    .redacted(reason: .placeholder)
-                                Spacer()
-                                Text("1h")
-                                    .font(.spellwireBody(14, weight: .medium))
-                                    .redacted(reason: .placeholder)
-                            }
-                            .padding(.leading, 28)
-                            .padding(.vertical, 10)
-                            .modifier(ShimmerEffect())
-                        }
-                    }
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.white.opacity(0.09))
+                        .frame(width: skeleton.detailWidth, height: 16)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 18)
+                .background(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(Color.white.opacity(0.05))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .stroke(Color.white.opacity(0.07), lineWidth: 1)
+                        }
+                )
+                .modifier(ShimmerEffect())
             }
         }
     }
@@ -830,31 +828,14 @@ private struct CodexThreadView: View {
 }
 
 private struct ProjectThreadSkeleton: Identifiable {
-    struct Row: Identifiable {
-        let id = UUID()
-        let title: String
-    }
-
     let id = UUID()
-    let title: String
-    let rows: [Row]
+    let titleWidth: CGFloat
+    let detailWidth: CGFloat
 
-    static let projects: [ProjectThreadSkeleton] = [
-        ProjectThreadSkeleton(
-            title: "spellwire",
-            rows: [
-                Row(title: "Loading recent thread"),
-                Row(title: "Loading running thread"),
-                Row(title: "Loading archived thread"),
-            ]
-        ),
-        ProjectThreadSkeleton(
-            title: "workspace",
-            rows: [
-                Row(title: "Loading recent thread"),
-                Row(title: "Loading running thread"),
-            ]
-        ),
+    static let cards: [ProjectThreadSkeleton] = [
+        ProjectThreadSkeleton(titleWidth: 148, detailWidth: 236),
+        ProjectThreadSkeleton(titleWidth: 172, detailWidth: 214),
+        ProjectThreadSkeleton(titleWidth: 132, detailWidth: 248),
     ]
 }
 
@@ -868,13 +849,13 @@ private struct ShimmerEffect: ViewModifier {
                     LinearGradient(
                         colors: [
                             .clear,
-                            .white.opacity(0.22),
+                            .white.opacity(0.24),
                             .clear,
                         ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                    .rotationEffect(.degrees(24))
+                    .rotationEffect(.degrees(20))
                     .offset(x: geometry.size.width * phase)
                     .blendMode(.plusLighter)
                     .mask(content)
@@ -883,7 +864,7 @@ private struct ShimmerEffect: ViewModifier {
             }
             .task {
                 guard phase == -0.8 else { return }
-                withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) {
+                withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
                     phase = 1.2
                 }
             }
