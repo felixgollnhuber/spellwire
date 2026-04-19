@@ -28,6 +28,8 @@ struct CodexWorkspaceView: View {
     @State private var knownProjectIDs = Set<CodexProject.ID>()
     @State private var pendingThread: CodexThreadSummary?
     @State private var creatingProjectID: CodexProject.ID?
+    @State private var searchFieldStatus: WorkspaceSearchFieldStatus = .idle
+    @State private var searchFieldStatusResetTask: Task<Void, Never>?
 
     private let searchHeaderHeight: CGFloat = 50
     private let searchHeaderTopSpacing: CGFloat = 115
@@ -36,15 +38,13 @@ struct CodexWorkspaceView: View {
         ZStack(alignment: .top) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    if let cacheStatusMessage = service.cacheStatusMessage {
-                        cacheStatusBanner(cacheStatusMessage)
-                    }
                     workspaceContent
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, searchHeaderTopSpacing + searchHeaderHeight + 14)
                 .padding(.bottom, 28)
             }
+            .scrollDismissesKeyboard(.immediately)
             .scrollIndicators(.hidden)
             .refreshable {
                 await service.refreshWorkspace(userInitiated: true)
@@ -94,6 +94,9 @@ struct CodexWorkspaceView: View {
                 haptics: haptics
             )
         }
+        .onChange(of: service.isLoadingList) { _, isLoading in
+            handleSearchFieldLoadingChange(isLoading)
+        }
         .onChange(of: service.projects.map(\.id)) { _, projectIDs in
             guard !projectIDs.isEmpty else { return }
             let projectIDSet = Set(projectIDs)
@@ -135,6 +138,14 @@ struct CodexWorkspaceView: View {
         } message: {
             Text(service.errorMessage ?? "")
         }
+        .onAppear {
+            if service.isLoadingList {
+                searchFieldStatus = .refreshing
+            }
+        }
+        .onDisappear {
+            searchFieldStatusResetTask?.cancel()
+        }
     }
 }
 
@@ -164,7 +175,7 @@ extension CodexWorkspaceView {
         Image("SpellwireHeaderLogo")
             .resizable()
             .aspectRatio(contentMode: .fit)
-            .frame(width: 40, height: 40)
+            .frame(width: 44, height: 44)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .accessibilityHidden(true)
     }
@@ -251,9 +262,9 @@ extension CodexWorkspaceView {
     private var searchField: some View {
         let shape = RoundedRectangle(cornerRadius: 19, style: .continuous)
 
-        return WorkspaceSystemSearchBar(
+        return WorkspaceAnimatedSearchField(
             text: $searchText,
-            placeholder: "Search conversations"
+            status: searchFieldStatus
         )
         .frame(height: 38)
         .background(searchFieldBaseFill, in: shape)
@@ -262,6 +273,7 @@ extension CodexWorkspaceView {
                 .stroke(Color.white.opacity(0.14), lineWidth: 1)
         }
         .modifier(WorkspaceSearchFieldGlass(shape: shape))
+        .animation(.snappy(duration: 0.32, extraBounce: 0.04), value: searchFieldStatus)
     }
 
     private var searchFieldBaseFill: Color {
@@ -296,6 +308,18 @@ extension CodexWorkspaceView {
     private func projectSection(_ project: CodexProject) -> some View {
         let threads = service.threadsForProject(projectID: project.id, matching: searchText)
         let isExpanded = initializedProjectCollapseState && !collapsedProjectIDs.contains(project.id)
+        let threadTransition = AnyTransition.asymmetric(
+            insertion: .opacity
+                .combined(with: .offset(y: -6)),
+            removal: .opacity
+                .combined(with: .offset(y: -4))
+        )
+        let sectionTransition = AnyTransition.asymmetric(
+            insertion: .opacity
+                .combined(with: .move(edge: .top)),
+            removal: .opacity
+                .combined(with: .scale(scale: 0.985, anchor: .top))
+        )
 
         return VStack(alignment: .leading, spacing: isExpanded ? 10 : 0) {
             ProjectSectionHeader(
@@ -324,26 +348,20 @@ extension CodexWorkspaceView {
                         }
                         .buttonStyle(.plain)
                         .transition(
-                            .offset(y: -10)
-                                .combined(with: .opacity)
-                                .animation(.snappy(duration: 0.24, extraBounce: 0).delay(Double(index) * 0.025))
+                            threadTransition
+                                .animation(.easeInOut(duration: 0.2).delay(Double(index) * 0.018))
                         )
                     }
                 }
                 .padding(.leading, 28)
-                .transition(
-                    .asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity),
-                        removal: .opacity
-                    )
-                )
+                .transition(sectionTransition)
             }
         }
-        .animation(.snappy(duration: 0.28, extraBounce: 0.08), value: isExpanded)
+        .animation(.easeInOut(duration: 0.24), value: isExpanded)
     }
 
     private func toggleProject(_ projectID: CodexProject.ID) {
-        withAnimation(.snappy(duration: 0.28, extraBounce: 0.08)) {
+        withAnimation(.easeInOut(duration: 0.24)) {
             if collapsedProjectIDs.contains(projectID) {
                 collapsedProjectIDs.remove(projectID)
             } else {
@@ -370,26 +388,6 @@ extension CodexWorkspaceView {
         }
     }
 
-    private func cacheStatusBanner(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: service.isReadOnlyFallback ? "icloud.slash" : "clock.arrow.trianglehead.counterclockwise.rotate.90")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.82))
-
-            Text(message)
-                .font(.spellwireBody(14, weight: .medium))
-                .foregroundStyle(Color.white.opacity(0.82))
-                .multilineTextAlignment(.leading)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.08))
-        )
-    }
-
     private func threadIndicator(for thread: CodexThreadSummary) -> ThreadRowIndicator {
         if service.isThreadRunning(thread) {
             return .running
@@ -398,6 +396,166 @@ extension CodexWorkspaceView {
             return .unread
         }
         return .none
+    }
+
+    private func handleSearchFieldLoadingChange(_ isLoading: Bool) {
+        searchFieldStatusResetTask?.cancel()
+
+        if isLoading {
+            withAnimation(.easeInOut(duration: 0.22)) {
+                searchFieldStatus = .refreshing
+            }
+            return
+        }
+
+        guard !service.isReadOnlyFallback else {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                searchFieldStatus = .idle
+            }
+            return
+        }
+
+        withAnimation(.easeInOut(duration: 0.22)) {
+            searchFieldStatus = .success
+        }
+
+        searchFieldStatusResetTask = Task {
+            try? await Task.sleep(for: .milliseconds(900))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.24)) {
+                    searchFieldStatus = .idle
+                }
+            }
+        }
+    }
+}
+
+private enum WorkspaceSearchFieldStatus: Equatable {
+    case idle
+    case refreshing
+    case success
+
+    var prompt: String {
+        switch self {
+        case .idle:
+            return "Search conversations"
+        case .refreshing:
+            return "Refreshing…"
+        case .success:
+            return "Updated"
+        }
+    }
+}
+
+private struct WorkspaceAnimatedSearchField: View {
+    @Binding var text: String
+    let status: WorkspaceSearchFieldStatus
+
+    var body: some View {
+        HStack(spacing: 12) {
+            WorkspaceSearchStatusIcon(status: status)
+                .frame(width: 28, height: 28)
+
+            ZStack(alignment: .leading) {
+                if text.isEmpty {
+                    Text(status.prompt)
+                        .id(status)
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundStyle(promptColor)
+                        .transition(
+                            .asymmetric(
+                                insertion: .opacity
+                                    .combined(with: .scale(scale: 0.985))
+                                    .combined(with: .offset(y: 2)),
+                                removal: .opacity
+                                    .combined(with: .scale(scale: 1.01))
+                                    .combined(with: .offset(y: -2))
+                            )
+                        )
+                }
+
+                TextField("", text: $text)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.search)
+                    .foregroundStyle(.white)
+                    .font(.system(size: 17, weight: .regular))
+            }
+        }
+        .padding(.horizontal, 14)
+        .animation(.easeInOut(duration: 0.22), value: status)
+    }
+
+    private var promptColor: Color {
+        switch status {
+        case .idle:
+            return Color.white.opacity(0.62)
+        case .refreshing:
+            return Color.white.opacity(0.74)
+        case .success:
+            return Color.green.opacity(0.92)
+        }
+    }
+}
+
+private struct WorkspaceSearchStatusIcon: View {
+    let status: WorkspaceSearchFieldStatus
+
+    @State private var spin = false
+    @State private var hueShift = false
+
+    var body: some View {
+        ZStack {
+            switch status {
+            case .idle:
+                Image(systemName: "magnifyingglass")
+                    .id("idle")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.62))
+
+            case .refreshing:
+                Image(systemName: "arrow.trianglehead.2.clockwise")
+                    .id("refreshing")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [
+                                .mint,
+                                .cyan,
+                                .blue,
+                                .purple,
+                                .mint,
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .rotationEffect(.degrees(spin ? 360 : 0))
+                    .hueRotation(.degrees(hueShift ? 70 : 0))
+                    .onAppear {
+                        spin = true
+                        hueShift = true
+                    }
+                    .animation(.linear(duration: 0.85).repeatForever(autoreverses: false), value: spin)
+                    .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: hueShift)
+
+            case .success:
+                Image(systemName: "checkmark.circle.fill")
+                    .id("success")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.green)
+                    .symbolEffect(.bounce, value: status)
+            }
+        }
+        .transition(
+            .asymmetric(
+                insertion: .opacity.combined(with: .scale(scale: 0.92)),
+                removal: .opacity.combined(with: .scale(scale: 1.06))
+            )
+        )
+        .contentTransition(.opacity)
+        .animation(.easeInOut(duration: 0.2), value: status)
     }
 }
 
@@ -667,86 +825,6 @@ private struct CodexThreadView: View {
             .padding(.horizontal)
             .padding(.bottom, 10)
             .background(.bar)
-        }
-    }
-}
-
-private struct WorkspaceSystemSearchBar: UIViewRepresentable {
-    @Binding var text: String
-    let placeholder: String
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
-    }
-
-    func makeUIView(context: Context) -> UISearchTextField {
-        let textField = UISearchTextField(frame: .zero)
-        textField.delegate = context.coordinator
-        textField.autocapitalizationType = .none
-        textField.autocorrectionType = .no
-        textField.returnKeyType = .search
-        textField.enablesReturnKeyAutomatically = false
-        textField.clearButtonMode = .whileEditing
-        textField.leftViewMode = .always
-        textField.backgroundColor = .clear
-        configure(textField)
-        return textField
-    }
-
-    func updateUIView(_ uiView: UISearchTextField, context: Context) {
-        if uiView.text != text {
-            uiView.text = text
-        }
-        configure(uiView)
-    }
-
-    private func configure(_ textField: UISearchTextField) {
-        textField.backgroundColor = .clear
-        textField.textColor = .label
-        textField.borderStyle = .none
-        textField.clearButtonMode = .whileEditing
-        textField.font = .systemFont(ofSize: 17, weight: .regular)
-        textField.defaultTextAttributes = [
-            .foregroundColor: UIColor.label,
-            .font: UIFont.systemFont(ofSize: 17, weight: .regular),
-        ]
-        textField.attributedPlaceholder = NSAttributedString(
-            string: placeholder,
-            attributes: [
-                .foregroundColor: WorkspaceSearchBarPalette.placeholderColor,
-                .font: UIFont.systemFont(ofSize: 17, weight: .regular),
-            ]
-        )
-
-        if let searchIconView = textField.leftView as? UIImageView {
-            searchIconView.tintColor = WorkspaceSearchBarPalette.placeholderColor
-        }
-    }
-
-    final class Coordinator: NSObject, UITextFieldDelegate {
-        @Binding private var text: String
-
-        init(text: Binding<String>) {
-            _text = text
-        }
-
-        func textFieldDidChangeSelection(_ textField: UITextField) {
-            text = textField.text ?? ""
-        }
-
-        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-            textField.resignFirstResponder()
-            return true
-        }
-    }
-}
-
-private enum WorkspaceSearchBarPalette {
-    static let placeholderColor = UIColor { traitCollection in
-        if traitCollection.userInterfaceStyle == .dark {
-            return UIColor(white: 0.62, alpha: 1)
-        } else {
-            return UIColor(white: 0.34, alpha: 1)
         }
     }
 }
