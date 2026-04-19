@@ -111,23 +111,72 @@ interface RawModelListResponse {
     nextCursor: string | null;
 }
 
+interface AppServerNotification {
+    method: string;
+    params?: unknown;
+}
+
+interface AppServerLike {
+    on(event: "notification", listener: (notification: AppServerNotification) => void): this;
+    on(event: "exit", listener: (error: Error) => void): this;
+    currentSnapshot(): ReturnType<AppServerClient["currentSnapshot"]>;
+    ensureStarted(): Promise<void>;
+    request<T>(method: string, params: unknown): Promise<T>;
+    shutdown(): Promise<void>;
+}
+
+interface DesktopBridgeLike {
+    rememberLastActiveThread(threadID: string, cwd: string): Promise<void>;
+    openThread(threadID: string, cwd: string): Promise<{ opened: boolean; bestEffort: boolean }>;
+}
+
+interface TimedCacheEntry<T> {
+    value: T;
+    expiresAt: number;
+}
+
+interface TimedCacheState<T> {
+    entry: TimedCacheEntry<T> | null;
+    inFlight: Promise<T> | null;
+}
+
+const inventoryCacheTTL = 10_000;
+const modelsCacheTTL = 10_000;
+const projectsCacheTTL = 10_000;
+const branchCacheTTL = 5_000;
+
 export class SpellwireDaemon {
     private readonly paths: RuntimePaths;
     private readonly logger: JSONLLogger;
-    private readonly appServer: AppServerClient;
+    private readonly appServer: AppServerLike;
     private readonly recoveryIndex = new SessionRecoveryIndex();
     private readonly previewRegistry = new PreviewRegistry();
-    private readonly desktopBridge: DesktopBridge;
+    private readonly desktopBridge: DesktopBridgeLike;
+    private activeInventoryCache: TimedCacheState<RawThread[]> = { entry: null, inFlight: null };
+    private archivedInventoryCache: TimedCacheState<RawThread[]> = { entry: null, inFlight: null };
+    private projectsCache: TimedCacheState<CodexProject[]> = { entry: null, inFlight: null };
+    private modelsCache: TimedCacheState<ModelOption[]> = { entry: null, inFlight: null };
+    private branchCaches = new Map<string, TimedCacheState<BranchInfo[]>>();
     private server: net.Server | null = null;
     private readonly sockets = new Set<net.Socket>();
 
-    constructor(paths = runtimePaths()) {
+    constructor(
+        paths = runtimePaths(),
+        dependencies: {
+            logger?: JSONLLogger;
+            appServer?: AppServerLike;
+            desktopBridge?: DesktopBridgeLike;
+        } = {},
+    ) {
         this.paths = paths;
         ensureRuntimeDirectories(paths);
-        this.logger = new JSONLLogger(paths.logFilePath);
-        this.appServer = new AppServerClient(this.logger);
-        this.desktopBridge = new DesktopBridge(paths);
+        this.logger = dependencies.logger ?? new JSONLLogger(paths.logFilePath);
+        this.appServer = dependencies.appServer ?? new AppServerClient(this.logger);
+        this.desktopBridge = dependencies.desktopBridge ?? new DesktopBridge(paths);
         this.appServer.on("notification", (notification) => {
+            if (this.notificationTouchesThreadCaches(notification.method)) {
+                this.invalidateHelperCaches();
+            }
             void patchDaemonState(this.paths, {
                 appServerPID: this.appServer.currentSnapshot().pid,
                 codexHome: this.appServer.currentSnapshot().codexHome,
@@ -304,17 +353,22 @@ export class SpellwireDaemon {
     }
 
     private async projectsList(): Promise<CodexProject[]> {
-        const { activeThreads, archivedThreads } = await this.threadInventory();
-        return projectsFromThreads(activeThreads, archivedThreads);
+        return this.readCachedValue(this.projectsCache, projectsCacheTTL, async () => {
+            const { activeThreads, archivedThreads } = await this.threadInventory();
+            return projectsFromThreads(activeThreads, archivedThreads);
+        });
     }
 
     private async threadsList(params: ThreadsListParams): Promise<CodexThreadSummary[]> {
         const archived = params.archived ?? false;
-        const threads = await this.loadThreads(archived, {
+        const filters = {
             cwd: params.projectID ?? undefined,
             searchTerm: params.query ?? undefined,
             limit: params.limit ?? undefined,
-        });
+        };
+        const threads = this.shouldUseInventoryCache(filters)
+            ? this.filterThreads(await this.inventory(archived), filters)
+            : await this.loadThreadsFromServer(archived, filters);
         return threads
             .map((thread) => threadToSummary(thread as unknown as Parameters<typeof threadToSummary>[0], archived))
             .sort((left, right) => right.updatedAt - left.updatedAt);
@@ -328,6 +382,7 @@ export class SpellwireDaemon {
         const response = await this.appServer.request<{ thread: RawThread }>("thread/start", {
             cwd: params.cwd,
         });
+        this.invalidateHelperCaches();
 
         return threadToSummary(
             response.thread as unknown as Parameters<typeof threadToSummary>[0],
@@ -386,6 +441,7 @@ export class SpellwireDaemon {
             serviceTier: params.serviceTier ?? undefined,
             sandboxPolicy: params.sandboxPolicy ?? undefined,
         });
+        this.invalidateHelperCaches();
         return {
             threadID: params.threadID,
             turnID: response.turn.id,
@@ -404,6 +460,7 @@ export class SpellwireDaemon {
                 },
             ],
         });
+        this.invalidateHelperCaches();
         return {
             threadID: params.threadID,
             turnID: response.turn.id,
@@ -415,6 +472,7 @@ export class SpellwireDaemon {
             threadId: params.threadID,
             turnId: params.turnID,
         });
+        this.invalidateHelperCaches();
         return {
             threadID: params.threadID,
             turnID: params.turnID,
@@ -427,32 +485,34 @@ export class SpellwireDaemon {
     }
 
     private async modelsList(): Promise<ModelOption[]> {
-        const models: ModelOption[] = [];
-        let cursor: string | null = null;
+        return this.readCachedValue(this.modelsCache, modelsCacheTTL, async () => {
+            const models: ModelOption[] = [];
+            let cursor: string | null = null;
 
-        do {
-            const page: RawModelListResponse = await this.appServer.request("model/list", {
-                cursor,
-                includeHidden: false,
-            });
-            models.push(
-                ...page.data.map((model: RawModelOption) => ({
-                    id: model.id,
-                    model: model.model,
-                    displayName: model.displayName,
-                    description: model.description,
-                    hidden: model.hidden,
-                    supportedReasoningEfforts: model.supportedReasoningEfforts,
-                    defaultReasoningEffort: model.defaultReasoningEffort,
-                    inputModalities: model.inputModalities,
-                    additionalSpeedTiers: model.additionalSpeedTiers,
-                    isDefault: model.isDefault,
-                })),
-            );
-            cursor = page.nextCursor;
-        } while (cursor);
+            do {
+                const page: RawModelListResponse = await this.appServer.request("model/list", {
+                    cursor,
+                    includeHidden: false,
+                });
+                models.push(
+                    ...page.data.map((model: RawModelOption) => ({
+                        id: model.id,
+                        model: model.model,
+                        displayName: model.displayName,
+                        description: model.description,
+                        hidden: model.hidden,
+                        supportedReasoningEfforts: model.supportedReasoningEfforts,
+                        defaultReasoningEffort: model.defaultReasoningEffort,
+                        inputModalities: model.inputModalities,
+                        additionalSpeedTiers: model.additionalSpeedTiers,
+                        isDefault: model.isDefault,
+                    })),
+                );
+                cursor = page.nextCursor;
+            } while (cursor);
 
-        return models;
+            return models;
+        });
     }
 
     private async branchesList(params: BranchListParams): Promise<BranchInfo[]> {
@@ -460,7 +520,9 @@ export class SpellwireDaemon {
             throw new Error("cwd is required.");
         }
 
-        return listLocalBranches(params.cwd);
+        const cache = this.branchCaches.get(params.cwd) ?? { entry: null, inFlight: null };
+        this.branchCaches.set(params.cwd, cache);
+        return this.readCachedValue(cache, branchCacheTTL, async () => listLocalBranches(params.cwd));
     }
 
     private async branchesSwitch(params: BranchSwitchParams): Promise<BranchSwitchResult> {
@@ -471,6 +533,7 @@ export class SpellwireDaemon {
             throw new Error("name is required.");
         }
 
+        this.invalidateHelperCaches();
         return {
             cwd: params.cwd,
             currentBranch: await switchLocalBranch(params.cwd, params.name),
@@ -516,20 +579,30 @@ export class SpellwireDaemon {
 
     private async threadInventory(): Promise<{ activeThreads: RawThread[]; archivedThreads: RawThread[] }> {
         const [activeThreads, archivedThreads] = await Promise.all([
-            this.loadThreads(false),
-            this.loadThreads(true),
+            this.inventory(false),
+            this.inventory(true),
         ]);
         return { activeThreads, archivedThreads };
     }
 
-    private async loadThreads(archived: boolean, filters?: { cwd?: string; searchTerm?: string; limit?: number }): Promise<RawThread[]> {
+    private async inventory(archived: boolean): Promise<RawThread[]> {
+        const cache = archived ? this.archivedInventoryCache : this.activeInventoryCache;
+        return this.readCachedValue(cache, inventoryCacheTTL, async () => this.loadThreadsFromServer(archived));
+    }
+
+    private async loadThreadsFromServer(
+        archived: boolean,
+        filters?: { cwd?: string; searchTerm?: string; limit?: number },
+    ): Promise<RawThread[]> {
         const threads: RawThread[] = [];
         let cursor: string | null = null;
+        const requestedLimit = filters?.limit && filters.limit > 0 ? filters.limit : null;
+        const pageLimit = requestedLimit ? Math.min(requestedLimit, 100) : 100;
 
         do {
             const response: { data: RawThread[]; nextCursor: string | null } = await this.appServer.request("thread/list", {
                 cursor,
-                limit: filters?.limit ?? 100,
+                limit: pageLimit,
                 sortKey: "updated_at",
                 sourceKinds: allSourceKinds,
                 archived,
@@ -537,10 +610,87 @@ export class SpellwireDaemon {
                 searchTerm: filters?.searchTerm ?? null,
             });
             threads.push(...response.data);
+            if (requestedLimit && threads.length >= requestedLimit) {
+                return threads.slice(0, requestedLimit);
+            }
             cursor = response.nextCursor;
         } while (cursor);
 
         return threads;
+    }
+
+    private filterThreads(threads: RawThread[], filters?: { cwd?: string; searchTerm?: string; limit?: number }): RawThread[] {
+        let filtered = [...threads];
+
+        if (filters?.cwd) {
+            filtered = filtered.filter((thread) => thread.cwd === filters.cwd);
+        }
+
+        const normalizedSearchTerm = filters?.searchTerm?.trim().toLowerCase();
+        if (normalizedSearchTerm) {
+            filtered = filtered.filter((thread) => {
+                const haystack = [
+                    thread.cwd,
+                    thread.name ?? "",
+                    thread.preview,
+                    thread.agentNickname ?? "",
+                ]
+                    .join("\n")
+                    .toLowerCase();
+                return haystack.includes(normalizedSearchTerm);
+            });
+        }
+
+        filtered.sort((left, right) => right.updatedAt - left.updatedAt);
+
+        if (filters?.limit && filters.limit > 0) {
+            return filtered.slice(0, filters.limit);
+        }
+
+        return filtered;
+    }
+
+    private notificationTouchesThreadCaches(method: string): boolean {
+        return method.startsWith("thread/") || method.startsWith("turn/") || method.startsWith("item/");
+    }
+
+    private shouldUseInventoryCache(filters?: { cwd?: string; searchTerm?: string; limit?: number }): boolean {
+        return !filters?.cwd && !filters?.searchTerm?.trim() && !(filters?.limit && filters.limit > 0);
+    }
+
+    private invalidateHelperCaches(): void {
+        this.activeInventoryCache = { entry: null, inFlight: null };
+        this.archivedInventoryCache = { entry: null, inFlight: null };
+        this.projectsCache = { entry: null, inFlight: null };
+        this.modelsCache = { entry: null, inFlight: null };
+        this.branchCaches.clear();
+    }
+
+    private async readCachedValue<T>(
+        cache: TimedCacheState<T>,
+        ttlMs: number,
+        loader: () => Promise<T>,
+    ): Promise<T> {
+        if (cache.entry && cache.entry.expiresAt > Date.now()) {
+            return cache.entry.value;
+        }
+        if (cache.inFlight) {
+            return cache.inFlight;
+        }
+
+        cache.inFlight = loader()
+            .then((value) => {
+                cache.entry = {
+                    value,
+                    expiresAt: Date.now() + ttlMs,
+                };
+                return value;
+            })
+            .finally(() => {
+                cache.inFlight = null;
+            });
+
+        return cache.inFlight;
     }
 
     private async threadRuntime(threadID: string, _resume: boolean): Promise<CodexThreadDetail["runtime"]> {

@@ -25,6 +25,14 @@ Spellwire is not a hosted control plane, does not depend on a relay, and does no
 - The helper-owned sync layer, rollout recovery, desktop handoff, terminal, file manager, preview flows, and new Git working-tree actions exist as early implementations and are not production-complete yet.
 - The current docs must describe that reality honestly.
 
+## Agent Workflow (Local Validation)
+
+- **iOS:** Prefer Xcode.app for local builds, runs, and tests. Open `spellwire-ios/spellwire-ios.xcodeproj`, use the shared `spellwire-ios` scheme, and treat the active Xcode window, scheme, and destination as the source of truth while validating changes.
+- Use **XcodeBuildMCP only as a fallback** when Xcode.app is unavailable, fails to cooperate, or cannot expose the diagnostics or simulator control you need. Do not reach for XcodeBuildMCP first.
+- Do **not** substitute ad-hoc shell `xcodebuild` commands unless the user explicitly asks for them.
+- Prefer simulator validation first for routine iOS changes. Simulator builds do not require local signing overrides.
+- Device builds and archives require a local signing override file at `spellwire-ios/Config/Signing.local.xcconfig`. Start from `spellwire-ios/Config/Signing.local.xcconfig.example`, then set `SPELLWIRE_BUNDLE_IDENTIFIER` and `SPELLWIRE_DEVELOPMENT_TEAM` locally.
+
 ## Hard Guardrails
 
 - Do not reintroduce a relay, hosted broker, or hosted control plane.

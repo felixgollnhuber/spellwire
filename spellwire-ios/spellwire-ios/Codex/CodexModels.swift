@@ -387,6 +387,49 @@ struct BranchInfo: Codable, Hashable, Sendable, Identifiable {
     let isCurrent: Bool
 }
 
+struct CodexWorkspaceSnapshot: Codable, Hashable, Sendable {
+    let hostID: HostRecord.ID
+    let helperStatus: HelperStatusSnapshot?
+    let projects: [CodexProject]
+    let threads: [CodexThreadSummary]
+    let showsArchived: Bool
+    let cachedAt: Date
+    let lastLiveRefreshAt: Date?
+    let isStale: Bool
+}
+
+struct CachedThreadDetailEntry: Codable, Hashable, Sendable, Identifiable {
+    var id: String { "\(hostID.uuidString)|\(threadID)" }
+
+    let hostID: HostRecord.ID
+    let threadID: String
+    let detail: CodexThreadDetail
+    let cachedAt: Date
+    let lastLiveRefreshAt: Date?
+    let lastOpenedAt: Date
+    let isStale: Bool
+}
+
+struct CachedBranchListEntry: Codable, Hashable, Sendable, Identifiable {
+    var id: String { "\(hostID.uuidString)|\(cwd)" }
+
+    let hostID: HostRecord.ID
+    let cwd: String
+    let branches: [BranchInfo]
+    let cachedAt: Date
+    let lastLiveRefreshAt: Date?
+    let lastOpenedAt: Date
+    let isStale: Bool
+}
+
+struct CachedModelListEntry: Codable, Hashable, Sendable {
+    let hostID: HostRecord.ID
+    let models: [ModelOption]
+    let cachedAt: Date
+    let lastLiveRefreshAt: Date?
+    let isStale: Bool
+}
+
 struct BranchSwitchResult: Codable, Hashable, Sendable {
     let cwd: String
     let currentBranch: String

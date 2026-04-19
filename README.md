@@ -240,6 +240,12 @@ Then set your own values in `Signing.local.xcconfig`:
 
 The local file is gitignored so personal signing data stays out of the public repo.
 
+## iOS Development
+
+Open [`spellwire-ios/spellwire-ios.xcodeproj`](./spellwire-ios/spellwire-ios.xcodeproj) in Xcode and use the shared `spellwire-ios` scheme for local development.
+
+Prefer simulator builds and runs first when validating routine iPhone app changes. Device builds and archives require the local signing override described above.
+
 ## License
 
 Spellwire is being built as an `AGPL-3.0-only` open-source project. Keep the repository docs and release artifacts consistent with that license policy.

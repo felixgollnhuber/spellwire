@@ -30,42 +30,84 @@ final class CodexService {
     var isLoadingBranches = false
     var pendingHostKeyChallenge: HostKeyChallenge?
     var errorMessage: String?
+    var isShowingCachedData = false
+    var isReadOnlyFallback = false
+    var lastWorkspaceUpdatedAt: Date?
+    var lastSelectedThreadUpdatedAt: Date?
     private(set) var runningThreadIDs = Set<String>()
     private(set) var unreadThreadIDs = Set<String>()
 
     private let trustStore: HostTrustStore
-    private let client: HelperRPCClient
+    private let client: any HelperRPCRequesting
+    private let workspaceSnapshotStore: CodexWorkspaceSnapshotStore?
+    private let threadDetailCacheStore: CodexThreadDetailCacheStore?
+    private let metadataCacheStore: CodexMetadataCacheStore?
     private var pendingTrustReply: ((Bool) -> Void)?
     private var listRefreshTask: Task<Void, Never>?
     private var threadRefreshTask: Task<Void, Never>?
     private var gitStatusRefreshTask: Task<Void, Never>?
     private var gitStatusPollingTask: Task<Void, Never>?
+    private var threadCacheWriteTask: Task<Void, Never>?
     private var lastWorkspaceRefreshAt: Date?
 
-    init(host: HostRecord, identity: SSHDeviceIdentity, trustStore: HostTrustStore, haptics: HapticsClient) {
-        self.host = host
-        self.trustStore = trustStore
-        self.haptics = haptics
+    init(
+        host: HostRecord,
+        identity: SSHDeviceIdentity,
+        trustStore: HostTrustStore,
+        haptics: HapticsClient,
+        workspaceSnapshotStore: CodexWorkspaceSnapshotStore? = nil,
+        threadDetailCacheStore: CodexThreadDetailCacheStore? = nil,
+        metadataCacheStore: CodexMetadataCacheStore? = nil
+    ) {
         var challengeHandler: ((HostKeyChallenge, @escaping (Bool) -> Void) -> Void)?
-        client = HelperRPCClient(
+        let rpcClient = HelperRPCClient(
             host: host,
             identity: identity,
             trustedHost: trustStore.trustedHost(for: host.id)
         ) { challenge, reply in
             challengeHandler?(challenge, reply)
         }
+        self.host = host
+        self.trustStore = trustStore
+        self.haptics = haptics
+        self.client = rpcClient
+        self.workspaceSnapshotStore = workspaceSnapshotStore
+        self.threadDetailCacheStore = threadDetailCacheStore
+        self.metadataCacheStore = metadataCacheStore
         challengeHandler = { [weak self] challenge, reply in
             guard let self else { return }
             self.pendingHostKeyChallenge = challenge
             self.pendingTrustReply = reply
             self.haptics.play(.warning)
         }
+        rpcClient.eventHandler = { [weak self] event in
+            self?.handle(event: event)
+        }
+    }
+
+    init(
+        host: HostRecord,
+        trustStore: HostTrustStore,
+        haptics: HapticsClient,
+        client: any HelperRPCRequesting,
+        workspaceSnapshotStore: CodexWorkspaceSnapshotStore? = nil,
+        threadDetailCacheStore: CodexThreadDetailCacheStore? = nil,
+        metadataCacheStore: CodexMetadataCacheStore? = nil
+    ) {
+        self.host = host
+        self.trustStore = trustStore
+        self.haptics = haptics
+        self.client = client
+        self.workspaceSnapshotStore = workspaceSnapshotStore
+        self.threadDetailCacheStore = threadDetailCacheStore
+        self.metadataCacheStore = metadataCacheStore
         client.eventHandler = { [weak self] event in
             self?.handle(event: event)
         }
     }
 
     func loadInitialData() async {
+        hydrateWorkspaceSnapshotFromCache()
         await refreshWorkspace()
     }
 
@@ -73,11 +115,8 @@ final class CodexService {
         if let showArchived {
             showsArchived = showArchived
         }
-
-        if shouldInvalidateWorkspaceSnapshot {
-            helperStatus = nil
-            projects = []
-            threads = []
+        if shouldInvalidateWorkspaceSnapshot, hasWorkspaceSnapshot {
+            isShowingCachedData = true
         }
 
         isLoadingList = true
@@ -93,12 +132,22 @@ final class CodexService {
             threads = fetchedThreads
             reconcileThreadIndicators(using: fetchedThreads)
             lastWorkspaceRefreshAt = .now
+            lastWorkspaceUpdatedAt = .now
+            isShowingCachedData = false
+            isReadOnlyFallback = false
             errorMessage = nil
+            persistWorkspaceSnapshot(isStale: false)
             if userInitiated {
                 haptics.play(.success)
             }
         } catch {
-            errorMessage = error.localizedDescription
+            if hasWorkspaceSnapshot {
+                isShowingCachedData = true
+                isReadOnlyFallback = true
+                errorMessage = userInitiated ? "Unable to refresh. Showing cached data." : nil
+            } else {
+                errorMessage = error.localizedDescription
+            }
             if userInitiated {
                 haptics.play(.error)
             }
@@ -107,10 +156,17 @@ final class CodexService {
 
     func open(_ thread: CodexThreadSummary) async {
         prepareToOpenThread(thread)
+        hydrateThreadDetailFromCache(threadID: thread.id)
         await loadThread(method: "threads.open")
     }
 
     func createThread(in project: CodexProject) async -> CodexThreadSummary? {
+        guard canPerformRemoteMutations else {
+            errorMessage = "Remote actions are unavailable while Spellwire is showing cached data."
+            haptics.play(.warning)
+            return nil
+        }
+
         do {
             let created: CodexThreadSummary = try await client.request(
                 method: "threads.create",
@@ -123,6 +179,7 @@ final class CodexService {
             }
             prepareToOpenThread(created)
             errorMessage = nil
+            persistWorkspaceSnapshot(isStale: false)
             scheduleWorkspaceRefresh()
             haptics.play(.success)
             return created
@@ -145,6 +202,7 @@ final class CodexService {
         selectedThreadGitDiff = nil
         selectedThreadGitCommitPreview = nil
         availableBranches = []
+        lastSelectedThreadUpdatedAt = nil
     }
 
     func refreshSelectedThread(userInitiated: Bool = false) async {
@@ -159,6 +217,11 @@ final class CodexService {
         effort: String? = nil,
         serviceTier: String? = nil
     ) async {
+        guard canPerformRemoteMutations else {
+            errorMessage = "Remote actions are unavailable while Spellwire is showing cached data."
+            haptics.play(.warning)
+            return
+        }
         guard let selectedThread else { return }
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPrompt.isEmpty || !attachmentPaths.isEmpty else { return }
@@ -188,6 +251,7 @@ final class CodexService {
                 )
             )
             threadDetail = detailSnapshot
+            scheduleThreadCacheWrite()
         }
 
         do {
@@ -224,6 +288,7 @@ final class CodexService {
                 threadDetail = updatedDetail
             }
             scheduleThreadRefresh()
+            scheduleThreadCacheWrite()
             scheduleWorkspaceRefresh()
             errorMessage = nil
             haptics.play(.success)
@@ -232,6 +297,7 @@ final class CodexService {
                let index = failedDetail.timeline.firstIndex(where: { $0.id == pendingID }) {
                 failedDetail.timeline.remove(at: index)
                 threadDetail = failedDetail
+                scheduleThreadCacheWrite()
             }
             errorMessage = error.localizedDescription
             haptics.play(.error)
@@ -239,6 +305,11 @@ final class CodexService {
     }
 
     func interrupt() async {
+        guard canPerformRemoteMutations else {
+            errorMessage = "Remote actions are unavailable while Spellwire is showing cached data."
+            haptics.play(.warning)
+            return
+        }
         guard let selectedThread, let turnID = threadDetail?.activeTurnID else { return }
 
         do {
@@ -249,6 +320,7 @@ final class CodexService {
             threadDetail?.activeTurnID = nil
             runningThreadIDs.remove(selectedThread.id)
             errorMessage = nil
+            scheduleThreadCacheWrite()
             haptics.play(.success)
         } catch {
             errorMessage = error.localizedDescription
@@ -272,19 +344,26 @@ final class CodexService {
     }
 
     func loadModelsIfNeeded() async {
+        if availableModels.isEmpty {
+            hydrateModelsFromCache()
+        }
         guard availableModels.isEmpty else { return }
         await refreshModels()
     }
 
     func refreshModels() async {
+        hydrateModelsFromCache()
         isLoadingModels = true
         defer { isLoadingModels = false }
 
         do {
             availableModels = try await client.request(method: "models.list", params: EmptyParams())
+            persistModels()
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if availableModels.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -294,6 +373,7 @@ final class CodexService {
             return
         }
 
+        hydrateBranchesFromCache(cwd: cwd)
         isLoadingBranches = true
         defer { isLoadingBranches = false }
 
@@ -302,13 +382,21 @@ final class CodexService {
                 method: "branches.list",
                 params: BranchListRequest(cwd: cwd)
             )
+            persistBranches(cwd: cwd)
             errorMessage = nil
         } catch {
-            availableBranches = []
+            if availableBranches.isEmpty {
+                availableBranches = []
+            }
         }
     }
 
     func switchBranch(to name: String) async {
+        guard canPerformRemoteMutations else {
+            errorMessage = "Remote actions are unavailable while Spellwire is showing cached data."
+            haptics.play(.warning)
+            return
+        }
         guard let cwd = threadDetail?.runtime.cwd else { return }
 
         do {
@@ -336,6 +424,8 @@ final class CodexService {
                 )
                 threadDetail?.runtime = currentRuntime
             }
+            persistBranches(cwd: cwd)
+            scheduleThreadCacheWrite()
             await refreshSelectedThread()
             await refreshGitStatus()
             errorMessage = nil
@@ -454,6 +544,11 @@ final class CodexService {
         prTitle: String? = nil,
         prBody: String? = nil
     ) async -> GitCommitResult? {
+        guard canPerformRemoteMutations else {
+            errorMessage = "Remote actions are unavailable while Spellwire is showing cached data."
+            haptics.play(.warning)
+            return nil
+        }
         guard let cwd = currentThreadCWD else { return nil }
         let scopedPaths = currentThreadGitPaths
         guard !scopedPaths.isEmpty else { return nil }
@@ -560,39 +655,92 @@ final class CodexService {
         unreadThreadIDs.contains(thread.id) && !isThreadSelected(thread) && !isThreadRunning(thread)
     }
 
+    var canMutateRemotely: Bool {
+        canPerformRemoteMutations
+    }
+
+    var cacheStatusMessage: String? {
+        guard isShowingCachedData else { return nil }
+
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        let referenceDate = lastSelectedThreadUpdatedAt ?? lastWorkspaceUpdatedAt
+        let timestampDescription = referenceDate.map { formatter.localizedString(for: $0, relativeTo: .now) } ?? "recently"
+
+        if isReadOnlyFallback {
+            return "Showing cached data from \(timestampDescription). Remote actions are disabled."
+        }
+
+        return "Showing cached data from \(timestampDescription) while refreshing."
+    }
+
     private func loadThread(method: String, userInitiated: Bool = false) async {
         guard let selectedThread else { return }
+        let requestedThreadID = selectedThread.id
 
         isLoadingThread = true
         defer { isLoadingThread = false }
 
         do {
-            threadDetail = try await client.request(
+            let detail: CodexThreadDetail = try await client.request(
                 method: method,
-                params: ThreadSelectionRequest(threadID: selectedThread.id)
+                params: ThreadSelectionRequest(threadID: requestedThreadID)
             )
-            if let detail = threadDetail {
-                if let index = threads.firstIndex(where: { $0.id == detail.thread.id }) {
-                    threads[index] = detail.thread
-                }
-                if let index = projects.firstIndex(where: { $0.id == detail.project.id }) {
-                    projects[index] = detail.project
-                }
-                runningThreadIDs.remove(detail.thread.id)
-                if detail.activeTurnID != nil || threadHasActiveStatus(detail.thread) {
-                    runningThreadIDs.insert(detail.thread.id)
-                }
-                unreadThreadIDs.remove(detail.thread.id)
+
+            guard self.selectedThread?.id == requestedThreadID else {
+                return
             }
+
+            threadDetail = detail
+            if let index = threads.firstIndex(where: { $0.id == detail.thread.id }) {
+                threads[index] = detail.thread
+            }
+            if let index = projects.firstIndex(where: { $0.id == detail.project.id }) {
+                projects[index] = detail.project
+            }
+            runningThreadIDs.remove(detail.thread.id)
+            if detail.activeTurnID != nil || threadHasActiveStatus(detail.thread) {
+                runningThreadIDs.insert(detail.thread.id)
+            }
+            unreadThreadIDs.remove(detail.thread.id)
+            lastSelectedThreadUpdatedAt = .now
+            isShowingCachedData = false
+            isReadOnlyFallback = false
+            scheduleThreadCacheWrite()
             await loadModelsIfNeeded()
+
+            guard self.selectedThread?.id == requestedThreadID else {
+                return
+            }
+
             await refreshBranches()
+
+            guard self.selectedThread?.id == requestedThreadID else {
+                return
+            }
+
             await refreshGitStatus()
+
+            guard self.selectedThread?.id == requestedThreadID else {
+                return
+            }
+
             errorMessage = nil
             if userInitiated {
                 haptics.play(.success)
             }
         } catch {
-            errorMessage = error.localizedDescription
+            guard self.selectedThread?.id == requestedThreadID else {
+                return
+            }
+
+            if threadDetail?.thread.id == requestedThreadID {
+                isShowingCachedData = true
+                isReadOnlyFallback = true
+                errorMessage = userInitiated ? "Unable to refresh. Showing cached thread data." : nil
+            } else {
+                errorMessage = error.localizedDescription
+            }
             if userInitiated {
                 haptics.play(.error)
             }
@@ -686,6 +834,7 @@ final class CodexService {
             }
             if threadID == selectedThread?.id {
                 threadDetail?.activeTurnID = params?["turn"]?.objectValue?["id"]?.stringValue
+                scheduleThreadCacheWrite()
             }
             scheduleWorkspaceRefresh()
         case "turn/completed":
@@ -701,6 +850,7 @@ final class CodexService {
                 threadDetail?.activeTurnID = nil
                 scheduleThreadReconciliation()
                 scheduleGitStatusRefresh()
+                scheduleThreadCacheWrite()
             }
             scheduleWorkspaceRefresh()
         case "item/completed":
@@ -756,6 +906,7 @@ final class CodexService {
                 )
             )
         }
+        scheduleThreadCacheWrite()
     }
 
     private func mergeCompletedItem(item: JSONValue?, turnID: String?) {
@@ -783,6 +934,7 @@ final class CodexService {
         } else {
             threadDetail?.timeline.append(mapped)
         }
+        scheduleThreadCacheWrite()
     }
 
     private func isMatchingPendingLocalMessage(_ existing: CodexTimelineItem, canonical mapped: CodexTimelineItem) -> Bool {
@@ -895,6 +1047,104 @@ final class CodexService {
         }
     }
 
+    private func hydrateWorkspaceSnapshotFromCache() {
+        guard let workspaceSnapshotStore, let snapshot = try? workspaceSnapshotStore.snapshot(for: host.id) else { return }
+        helperStatus = snapshot.helperStatus
+        projects = snapshot.projects
+        threads = snapshot.threads
+        showsArchived = snapshot.showsArchived
+        lastWorkspaceUpdatedAt = snapshot.lastLiveRefreshAt ?? snapshot.cachedAt
+        isShowingCachedData = true
+        reconcileThreadIndicators(using: threads)
+    }
+
+    private func hydrateThreadDetailFromCache(threadID: String) {
+        guard let threadDetailCacheStore, let entry = try? threadDetailCacheStore.entry(for: host.id, threadID: threadID) else { return }
+        threadDetail = entry.detail
+        if let index = threads.firstIndex(where: { $0.id == entry.detail.thread.id }) {
+            threads[index] = entry.detail.thread
+        }
+        if let index = projects.firstIndex(where: { $0.id == entry.detail.project.id }) {
+            projects[index] = entry.detail.project
+        }
+        lastSelectedThreadUpdatedAt = entry.lastLiveRefreshAt ?? entry.cachedAt
+        isShowingCachedData = true
+    }
+
+    private func hydrateModelsFromCache() {
+        guard let metadataCacheStore, let entry = try? metadataCacheStore.cachedModels(for: host.id) else { return }
+        availableModels = entry.models
+    }
+
+    private func hydrateBranchesFromCache(cwd: String) {
+        guard let metadataCacheStore, let entry = try? metadataCacheStore.cachedBranches(for: host.id, cwd: cwd) else { return }
+        availableBranches = entry.branches
+    }
+
+    private func persistWorkspaceSnapshot(isStale: Bool) {
+        guard let workspaceSnapshotStore else { return }
+        let snapshot = CodexWorkspaceSnapshot(
+            hostID: host.id,
+            helperStatus: helperStatus,
+            projects: projects,
+            threads: threads,
+            showsArchived: showsArchived,
+            cachedAt: .now,
+            lastLiveRefreshAt: lastWorkspaceRefreshAt,
+            isStale: isStale
+        )
+        try? workspaceSnapshotStore.saveSnapshot(snapshot)
+    }
+
+    private func scheduleThreadCacheWrite() {
+        threadCacheWriteTask?.cancel()
+        threadCacheWriteTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard let self, !Task.isCancelled else { return }
+            self.persistSelectedThreadDetail(isStale: self.isShowingCachedData)
+        }
+    }
+
+    private func persistSelectedThreadDetail(isStale: Bool) {
+        guard let threadDetailCacheStore, let detail = threadDetail else { return }
+        let entry = CachedThreadDetailEntry(
+            hostID: host.id,
+            threadID: detail.thread.id,
+            detail: detail,
+            cachedAt: .now,
+            lastLiveRefreshAt: lastSelectedThreadUpdatedAt,
+            lastOpenedAt: .now,
+            isStale: isStale
+        )
+        try? threadDetailCacheStore.saveEntry(entry)
+    }
+
+    private func persistModels() {
+        guard let metadataCacheStore, !availableModels.isEmpty else { return }
+        let entry = CachedModelListEntry(
+            hostID: host.id,
+            models: availableModels,
+            cachedAt: .now,
+            lastLiveRefreshAt: .now,
+            isStale: false
+        )
+        try? metadataCacheStore.saveModels(entry)
+    }
+
+    private func persistBranches(cwd: String) {
+        guard let metadataCacheStore, !availableBranches.isEmpty else { return }
+        let entry = CachedBranchListEntry(
+            hostID: host.id,
+            cwd: cwd,
+            branches: availableBranches,
+            cachedAt: .now,
+            lastLiveRefreshAt: .now,
+            lastOpenedAt: .now,
+            isStale: false
+        )
+        try? metadataCacheStore.saveBranches(entry)
+    }
+
     private var shouldInvalidateWorkspaceSnapshot: Bool {
         guard hasWorkspaceSnapshot else { return false }
         guard let lastWorkspaceRefreshAt else { return true }
@@ -934,6 +1184,10 @@ final class CodexService {
             guard let self, !Task.isCancelled else { return }
             await self.refreshGitStatus()
         }
+    }
+
+    private var canPerformRemoteMutations: Bool {
+        !isReadOnlyFallback
     }
 
     private func reconcileThreadIndicators(using fetchedThreads: [CodexThreadSummary]) {

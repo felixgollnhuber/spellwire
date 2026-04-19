@@ -143,3 +143,136 @@ nonisolated struct ProjectPreviewPortStore {
         "\(hostID.uuidString)|\(cwd)"
     }
 }
+
+nonisolated struct CodexWorkspaceSnapshotStore {
+    private let store: JSONStore<[UUID: CodexWorkspaceSnapshot]>
+
+    init(appDirectories: AppDirectories) {
+        store = JSONStore(
+            url: appDirectories.applicationSupportDirectory.appending(path: "codex-workspace-snapshots.json"),
+            defaultValue: [:]
+        )
+    }
+
+    func load() throws -> [UUID: CodexWorkspaceSnapshot] {
+        try store.load()
+    }
+
+    func snapshot(for hostID: HostRecord.ID) throws -> CodexWorkspaceSnapshot? {
+        try load()[hostID]
+    }
+
+    func saveSnapshot(_ snapshot: CodexWorkspaceSnapshot) throws {
+        var snapshots = try load()
+        snapshots[snapshot.hostID] = snapshot
+        try store.save(snapshots)
+    }
+
+    func removeSnapshot(for hostID: HostRecord.ID) throws {
+        var snapshots = try load()
+        snapshots.removeValue(forKey: hostID)
+        try store.save(snapshots)
+    }
+
+    func clearAll() throws {
+        try store.save([:])
+    }
+}
+
+nonisolated struct CodexThreadDetailCacheStore {
+    private static let maxEntriesPerHost = 10
+
+    private let store: JSONStore<[UUID: [CachedThreadDetailEntry]]>
+
+    init(appDirectories: AppDirectories) {
+        store = JSONStore(
+            url: appDirectories.applicationSupportDirectory.appending(path: "codex-thread-details.json"),
+            defaultValue: [:]
+        )
+    }
+
+    func load() throws -> [UUID: [CachedThreadDetailEntry]] {
+        try store.load()
+    }
+
+    func entries(for hostID: HostRecord.ID) throws -> [CachedThreadDetailEntry] {
+        try load()[hostID] ?? []
+    }
+
+    func entry(for hostID: HostRecord.ID, threadID: String) throws -> CachedThreadDetailEntry? {
+        try entries(for: hostID).first(where: { $0.threadID == threadID })
+    }
+
+    func saveEntry(_ entry: CachedThreadDetailEntry) throws {
+        var allEntries = try load()
+        var hostEntries = allEntries[entry.hostID] ?? []
+        hostEntries.removeAll { $0.threadID == entry.threadID }
+        hostEntries.insert(entry, at: 0)
+        hostEntries.sort { $0.lastOpenedAt > $1.lastOpenedAt }
+        allEntries[entry.hostID] = Array(hostEntries.prefix(Self.maxEntriesPerHost))
+        try store.save(allEntries)
+    }
+
+    func removeEntries(for hostID: HostRecord.ID) throws {
+        var allEntries = try load()
+        allEntries.removeValue(forKey: hostID)
+        try store.save(allEntries)
+    }
+
+    func clearAll() throws {
+        try store.save([:])
+    }
+}
+
+nonisolated struct CodexMetadataCacheStore {
+    private static let maxBranchEntriesPerHost = 10
+
+    private struct MetadataEnvelope: Codable {
+        var modelsByHost: [UUID: CachedModelListEntry]
+        var branchesByHost: [UUID: [CachedBranchListEntry]]
+    }
+
+    private let store: JSONStore<MetadataEnvelope>
+
+    init(appDirectories: AppDirectories) {
+        store = JSONStore(
+            url: appDirectories.applicationSupportDirectory.appending(path: "codex-metadata-cache.json"),
+            defaultValue: MetadataEnvelope(modelsByHost: [:], branchesByHost: [:])
+        )
+    }
+
+    func cachedModels(for hostID: HostRecord.ID) throws -> CachedModelListEntry? {
+        try store.load().modelsByHost[hostID]
+    }
+
+    func saveModels(_ entry: CachedModelListEntry) throws {
+        var envelope = try store.load()
+        envelope.modelsByHost[entry.hostID] = entry
+        try store.save(envelope)
+    }
+
+    func cachedBranches(for hostID: HostRecord.ID, cwd: String) throws -> CachedBranchListEntry? {
+        try store.load().branchesByHost[hostID]?.first(where: { $0.cwd == cwd })
+    }
+
+    func saveBranches(_ entry: CachedBranchListEntry) throws {
+        var envelope = try store.load()
+        var branches = envelope.branchesByHost[entry.hostID] ?? []
+        branches.removeAll { $0.cwd == entry.cwd }
+        branches.insert(entry, at: 0)
+        branches.sort { $0.lastOpenedAt > $1.lastOpenedAt }
+        envelope.branchesByHost[entry.hostID] = Array(branches.prefix(Self.maxBranchEntriesPerHost))
+        try store.save(envelope)
+    }
+
+    func removeEntries(for hostID: HostRecord.ID) throws {
+        var envelope = try store.load()
+        envelope.modelsByHost.removeValue(forKey: hostID)
+        envelope.branchesByHost.removeValue(forKey: hostID)
+        try store.save(envelope)
+    }
+
+    func clearAll() throws {
+        try store.save(MetadataEnvelope(modelsByHost: [:], branchesByHost: [:]))
+    }
+}

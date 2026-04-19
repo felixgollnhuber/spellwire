@@ -10,6 +10,20 @@ protocol HelperRPCTransportDelegate: AnyObject {
     func transportDidDisconnect(error: Error?)
 }
 
+@MainActor
+protocol HelperRPCRequesting: AnyObject {
+    var eventHandler: ((HelperEventEnvelope) -> Void)? { get set }
+    func updateTrustedHost(_ trustedHost: TrustedHost?)
+    func request<Result: Decodable, Params: Encodable>(method: String, params: Params) async throws -> Result
+}
+
+protocol HelperRPCTransport: AnyObject {
+    var delegate: HelperRPCTransportDelegate? { get set }
+    func connect()
+    func send(_ data: Data)
+    func disconnect()
+}
+
 nonisolated private final class SSHExecTransport: @unchecked Sendable {
     weak var delegate: HelperRPCTransportDelegate?
 
@@ -198,6 +212,8 @@ nonisolated private final class SSHExecTransport: @unchecked Sendable {
     }
 }
 
+extension SSHExecTransport: HelperRPCTransport {}
+
 nonisolated private final class SSHExecChannelHandler: ChannelDuplexHandler, @unchecked Sendable {
     typealias InboundIn = SSHChannelData
     typealias OutboundIn = ByteBuffer
@@ -292,13 +308,16 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
     }
 
     private let host: HostRecord
-    private let identity: SSHDeviceIdentity
+    private let identity: SSHDeviceIdentity?
     private var trustedHost: TrustedHost?
+    private let transportFactory: (() throws -> any HelperRPCTransport)?
     private let onHostKeyChallenge: @MainActor (HostKeyChallenge, @escaping (Bool) -> Void) -> Void
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    private var transport: SSHExecTransport?
+    private var transport: (any HelperRPCTransport)?
+    private var connectTask: (id: UUID, task: Task<Void, Error>)?
+    private var isTransportConnected = false
     private var connectContinuation: CheckedContinuation<Void, Error>?
     private var pendingResponses: [String: CheckedContinuation<Data, Error>] = [:]
     private var receiveBuffer = Data()
@@ -315,6 +334,20 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
         self.host = host
         self.identity = identity
         self.trustedHost = trustedHost
+        self.transportFactory = nil
+        self.onHostKeyChallenge = onHostKeyChallenge
+    }
+
+    init(
+        host: HostRecord,
+        trustedHost: TrustedHost? = nil,
+        transportFactory: @escaping () throws -> any HelperRPCTransport,
+        onHostKeyChallenge: @escaping @MainActor (HostKeyChallenge, @escaping (Bool) -> Void) -> Void = { _, _ in }
+    ) {
+        self.host = host
+        self.identity = nil
+        self.trustedHost = trustedHost
+        self.transportFactory = transportFactory
         self.onHostKeyChallenge = onHostKeyChallenge
     }
 
@@ -323,31 +356,50 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
     }
 
     func connect() async throws {
-        if transport != nil {
+        if isTransportConnected {
             return
+        }
+        if let connectTask {
+            return try await connectTask.task.value
         }
 
         latestPlaintextOutput = nil
-
-        let transport = SSHExecTransport(
-            host: host,
-            identity: try identity.clientIdentity(username: host.username),
-            trustedHost: trustedHost,
-            command: helperRPCLaunchCommand,
-            onHostKeyChallenge: onHostKeyChallenge
-        )
+        let transport = try makeTransport()
         transport.delegate = self
         self.transport = transport
 
-        try await withCheckedThrowingContinuation { continuation in
-            connectContinuation = continuation
-            transport.connect()
+        let connectID = UUID()
+        let task = Task { @MainActor [weak self] in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                guard let self else {
+                    continuation.resume(throwing: TransportError.connectionFailed("The helper RPC client was released."))
+                    return
+                }
+                self.connectContinuation = continuation
+                transport.connect()
+            }
+        }
+        connectTask = (connectID, task)
+
+        do {
+            try await task.value
+            if connectTask?.id == connectID {
+                connectTask = nil
+            }
+        } catch {
+            if connectTask?.id == connectID {
+                connectTask = nil
+            }
+            throw error
         }
     }
 
     func disconnect() {
         transport?.disconnect()
         transport = nil
+        connectTask = nil
+        isTransportConnected = false
+        receiveBuffer.removeAll(keepingCapacity: false)
         latestPlaintextOutput = nil
     }
 
@@ -372,6 +424,7 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
     }
 
     func transportDidConnect() {
+        isTransportConnected = true
         connectContinuation?.resume()
         connectContinuation = nil
     }
@@ -388,6 +441,8 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
     }
 
     func transportDidDisconnect(error: Error?) {
+        isTransportConnected = false
+        connectTask = nil
         let disconnectError: Error
         if let error {
             disconnectError = error
@@ -404,7 +459,26 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
             continuation.resume(throwing: disconnectError)
         }
         transport = nil
+        receiveBuffer.removeAll(keepingCapacity: false)
         latestPlaintextOutput = nil
+    }
+
+    private func makeTransport() throws -> any HelperRPCTransport {
+        if let transportFactory {
+            return try transportFactory()
+        }
+
+        guard let identity else {
+            throw TransportError.connectionFailed("The helper RPC client is missing an SSH identity.")
+        }
+
+        return SSHExecTransport(
+            host: host,
+            identity: try identity.clientIdentity(username: host.username),
+            trustedHost: trustedHost,
+            command: helperRPCLaunchCommand,
+            onHostKeyChallenge: onHostKeyChallenge
+        )
     }
 
     private func handleLine(_ line: Data) {
@@ -463,3 +537,5 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
         return RemoteShellCommand.posixBootstrap(script: script)
     }
 }
+
+extension HelperRPCClient: HelperRPCRequesting {}

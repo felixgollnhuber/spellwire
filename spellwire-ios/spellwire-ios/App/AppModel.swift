@@ -11,6 +11,9 @@ final class AppModel {
     let trustStore: HostTrustStore
     let browserSettingsStore: BrowserSettingsStore
     let projectPreviewPortStore: ProjectPreviewPortStore
+    let codexWorkspaceSnapshotStore: CodexWorkspaceSnapshotStore
+    let codexThreadDetailCacheStore: CodexThreadDetailCacheStore
+    let codexMetadataCacheStore: CodexMetadataCacheStore
     let fileSessionManager: FileSessionManager
     let workingCopyManager: WorkingCopyManager
     let conflictResolver: ConflictResolver
@@ -31,6 +34,9 @@ final class AppModel {
             trustStore = HostTrustStore(appDirectories: appDirectories)
             browserSettingsStore = BrowserSettingsStore(appDirectories: appDirectories)
             projectPreviewPortStore = ProjectPreviewPortStore(appDirectories: appDirectories)
+            codexWorkspaceSnapshotStore = CodexWorkspaceSnapshotStore(appDirectories: appDirectories)
+            codexThreadDetailCacheStore = CodexThreadDetailCacheStore(appDirectories: appDirectories)
+            codexMetadataCacheStore = CodexMetadataCacheStore(appDirectories: appDirectories)
             fileSessionManager = FileSessionManager(appDirectories: appDirectories)
             workingCopyManager = WorkingCopyManager(appDirectories: appDirectories)
             conflictResolver = ConflictResolver()
@@ -77,6 +83,9 @@ final class AppModel {
         try fileSessionManager.clearAll()
         try browserSettingsStore.save(.default)
         try projectPreviewPortStore.save([:])
+        try codexWorkspaceSnapshotStore.clearAll()
+        try codexThreadDetailCacheStore.clearAll()
+        try codexMetadataCacheStore.clearAll()
         try identityStore.deleteIdentity()
         sshIdentity = try identityStore.loadOrCreateIdentity()
 
@@ -100,7 +109,15 @@ final class AppModel {
             return existing
         }
 
-        let service = CodexService(host: host, identity: sshIdentity, trustStore: trustStore, haptics: haptics)
+        let service = CodexService(
+            host: host,
+            identity: sshIdentity,
+            trustStore: trustStore,
+            haptics: haptics,
+            workspaceSnapshotStore: codexWorkspaceSnapshotStore,
+            threadDetailCacheStore: codexThreadDetailCacheStore,
+            metadataCacheStore: codexMetadataCacheStore
+        )
         codexServices[host.id] = service
         return service
     }
@@ -190,6 +207,9 @@ final class AppModel {
         for id in hostIDs {
             try trustStore.removeTrust(for: id)
             try fileSessionManager.clearLastVisitedPath(for: id)
+            try codexWorkspaceSnapshotStore.removeSnapshot(for: id)
+            try codexThreadDetailCacheStore.removeEntries(for: id)
+            try codexMetadataCacheStore.removeEntries(for: id)
             codexServices[id] = nil
         }
 

@@ -77,6 +77,9 @@ struct HostEditorView: View {
     let identity: SSHDeviceIdentity
     let trustStore: HostTrustStore
     let browserDefaultScheme: String
+    let codexWorkspaceSnapshotStore: CodexWorkspaceSnapshotStore
+    let codexThreadDetailCacheStore: CodexThreadDetailCacheStore
+    let codexMetadataCacheStore: CodexMetadataCacheStore
     let fileSessionManager: FileSessionManager
     let workingCopyManager: WorkingCopyManager
     let conflictResolver: ConflictResolver
@@ -94,6 +97,9 @@ struct HostEditorView: View {
         identity: SSHDeviceIdentity,
         trustStore: HostTrustStore,
         browserDefaultScheme: String,
+        codexWorkspaceSnapshotStore: CodexWorkspaceSnapshotStore,
+        codexThreadDetailCacheStore: CodexThreadDetailCacheStore,
+        codexMetadataCacheStore: CodexMetadataCacheStore,
         fileSessionManager: FileSessionManager,
         workingCopyManager: WorkingCopyManager,
         conflictResolver: ConflictResolver,
@@ -110,6 +116,9 @@ struct HostEditorView: View {
         self.identity = identity
         self.trustStore = trustStore
         self.browserDefaultScheme = browserDefaultScheme
+        self.codexWorkspaceSnapshotStore = codexWorkspaceSnapshotStore
+        self.codexThreadDetailCacheStore = codexThreadDetailCacheStore
+        self.codexMetadataCacheStore = codexMetadataCacheStore
         self.fileSessionManager = fileSessionManager
         self.workingCopyManager = workingCopyManager
         self.conflictResolver = conflictResolver
@@ -118,7 +127,19 @@ struct HostEditorView: View {
         self.onDeleteHost = onDeleteHost
         self.onResetEverything = onResetEverything
         self.onSave = onSave
-        _service = State(initialValue: host.map { CodexService(host: $0, identity: identity, trustStore: trustStore, haptics: haptics) })
+        _service = State(
+            initialValue: host.map {
+                CodexService(
+                    host: $0,
+                    identity: identity,
+                    trustStore: trustStore,
+                    haptics: haptics,
+                    workspaceSnapshotStore: codexWorkspaceSnapshotStore,
+                    threadDetailCacheStore: codexThreadDetailCacheStore,
+                    metadataCacheStore: codexMetadataCacheStore
+                )
+            }
+        )
     }
 
     var body: some View {
@@ -243,6 +264,20 @@ struct HostEditorView: View {
                     }
                 }
 
+                Section("Experiments") {
+                    NavigationLink {
+                        HostEditorGlassBarrelDemo()
+                            .navigationTitle("Glass Barrel Demo")
+                            .navigationBarTitleDisplayMode(.inline)
+                    } label: {
+                        ToolRow(
+                            title: "Open Glass Barrel Demo",
+                            systemImage: "sparkles.rectangle.stack",
+                            description: "Open the isolated Liquid Glass barrel test on its own screen."
+                        )
+                    }
+                }
+
                 if onDeleteHost != nil || onResetEverything != nil {
                     Section("Developer") {
                         if let onDeleteHost {
@@ -264,6 +299,7 @@ struct HostEditorView: View {
                         }
                     }
                 }
+
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
@@ -272,7 +308,7 @@ struct HostEditorView: View {
             }
             .task(id: host?.id) {
                 guard let service, service.projects.isEmpty, service.threads.isEmpty else { return }
-                await service.refreshWorkspace()
+                await service.loadInitialData()
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

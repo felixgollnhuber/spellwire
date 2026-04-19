@@ -2,6 +2,8 @@ import SwiftUI
 import UIKit
 
 struct CodexWorkspaceView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let host: HostRecord
     let service: CodexService
     let hosts: [HostRecord]
@@ -27,31 +29,47 @@ struct CodexWorkspaceView: View {
     @State private var pendingThread: CodexThreadSummary?
     @State private var creatingProjectID: CodexProject.ID?
 
+    private let searchHeaderHeight: CGFloat = 50
+    private let searchHeaderTopSpacing: CGFloat = 120
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                searchField
-                workspaceContent
+        ZStack(alignment: .top) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    if let cacheStatusMessage = service.cacheStatusMessage {
+                        cacheStatusBanner(cacheStatusMessage)
+                    }
+                    workspaceContent
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, searchHeaderTopSpacing + searchHeaderHeight + 14)
+                .padding(.bottom, 28)
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 14)
-            .padding(.bottom, 28)
+            .scrollIndicators(.hidden)
+            .refreshable {
+                await service.refreshWorkspace(userInitiated: true)
+            }
+
+            searchHeader
         }
-        .scrollIndicators(.hidden)
-        .background(Color.black.ignoresSafeArea())
+        .background(Color.clear)
+        .ignoresSafeArea(edges: .top)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                hostToolbarMenu
+                headerLogo
+            }
+            .sharedBackgroundVisibility(.hidden)
+
+            ToolbarItem(placement: .principal) {
+                centeredHostToolbarMenu
             }
 
             ToolbarItem(placement: .topBarTrailing) {
                 actionsToolbarMenu
             }
-        }
-        .refreshable {
-            await service.refreshWorkspace(userInitiated: true)
         }
         .task(id: host.id) {
             if service.projects.isEmpty && service.threads.isEmpty {
@@ -121,6 +139,18 @@ struct CodexWorkspaceView: View {
 }
 
 extension CodexWorkspaceView {
+    private var searchHeader: some View {
+        VStack(spacing: 0) {
+            searchField
+                .padding(.horizontal, 18)
+                .padding(.top, searchHeaderTopSpacing)
+                .padding(.bottom, 14)
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color.clear)
+        .zIndex(1)
+    }
+
     fileprivate var visibleProjects: [CodexProject] {
         service.projects.filter { service.projectIsVisible($0, query: searchText) }
             .sorted { $0.updatedAt > $1.updatedAt }
@@ -130,7 +160,16 @@ extension CodexWorkspaceView {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var hostToolbarMenu: some View {
+    private var headerLogo: some View {
+        Image("SpellwireHeaderLogo")
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 36, height: 36)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .accessibilityHidden(true)
+    }
+
+    private var centeredHostToolbarMenu: some View {
         Menu {
             Section("Hosts") {
                 ForEach(hosts) { candidate in
@@ -154,7 +193,7 @@ extension CodexWorkspaceView {
         } label: {
             HStack(spacing: 6) {
                 Text(host.nickname)
-                    .font(.spellwireBody(18, weight: .semibold))
+                    .font(.spellwireBody(17, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
@@ -162,6 +201,7 @@ extension CodexWorkspaceView {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.white.opacity(0.62))
             }
+            .frame(maxWidth: 220)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -209,26 +249,23 @@ extension CodexWorkspaceView {
     }
 
     private var searchField: some View {
-        Group {
-            if #available(iOS 26.0, *) {
-                WorkspaceSystemSearchBar(
-                    text: $searchText,
-                    placeholder: "Search conversations"
-                )
-                .frame(height: 38)
-                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 19))
-            } else {
-                WorkspaceSystemSearchBar(
-                    text: $searchText,
-                    placeholder: "Search conversations"
-                )
-                .frame(height: 38)
-                .background(
-                    RoundedRectangle(cornerRadius: 19, style: .continuous)
-                        .fill(Color(.secondarySystemBackground))
-                )
-            }
+        let shape = RoundedRectangle(cornerRadius: 19, style: .continuous)
+
+        return WorkspaceSystemSearchBar(
+            text: $searchText,
+            placeholder: "Search conversations"
+        )
+        .frame(height: 38)
+        .background(searchFieldBaseFill, in: shape)
+        .overlay {
+            shape
+                .stroke(Color.white.opacity(0.14), lineWidth: 1)
         }
+        .modifier(WorkspaceSearchFieldGlass(shape: shape))
+    }
+
+    private var searchFieldBaseFill: Color {
+        colorScheme == .dark ? Color.black.opacity(0.14) : Color.black.opacity(0.24)
     }
 
     @ViewBuilder
@@ -248,7 +285,7 @@ extension CodexWorkspaceView {
             .foregroundStyle(.white.opacity(0.82))
             .frame(maxWidth: .infinity, minHeight: 280)
         } else {
-            VStack(alignment: .leading, spacing: 18) {
+            LazyVStack(alignment: .leading, spacing: 18) {
                 ForEach(visibleProjects) { project in
                     projectSection(project)
                 }
@@ -258,13 +295,14 @@ extension CodexWorkspaceView {
 
     private func projectSection(_ project: CodexProject) -> some View {
         let threads = service.threadsForProject(projectID: project.id, matching: searchText)
-        let isExpanded = !collapsedProjectIDs.contains(project.id)
+        let isExpanded = initializedProjectCollapseState && !collapsedProjectIDs.contains(project.id)
 
         return VStack(alignment: .leading, spacing: isExpanded ? 10 : 0) {
             ProjectSectionHeader(
                 project: project,
                 isExpanded: isExpanded,
-                isCreating: creatingProjectID == project.id
+                isCreating: creatingProjectID == project.id,
+                canCreate: service.canMutateRemotely
             ) {
                 toggleProject(project.id)
             } onCreate: {
@@ -272,7 +310,7 @@ extension CodexWorkspaceView {
             }
 
             if isExpanded {
-                VStack(alignment: .leading, spacing: 2) {
+                LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(threads.enumerated()), id: \.element.id) { index, thread in
                         Button {
                             service.prepareToOpenThread(thread)
@@ -317,6 +355,7 @@ extension CodexWorkspaceView {
 
     private func createThread(in project: CodexProject) {
         guard creatingProjectID == nil else { return }
+        guard service.canMutateRemotely else { return }
         creatingProjectID = project.id
 
         Task {
@@ -331,6 +370,26 @@ extension CodexWorkspaceView {
         }
     }
 
+    private func cacheStatusBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: service.isReadOnlyFallback ? "icloud.slash" : "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.82))
+
+            Text(message)
+                .font(.spellwireBody(14, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.82))
+                .multilineTextAlignment(.leading)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+        )
+    }
+
     private func threadIndicator(for thread: CodexThreadSummary) -> ThreadRowIndicator {
         if service.isThreadRunning(thread) {
             return .running
@@ -342,10 +401,32 @@ extension CodexWorkspaceView {
     }
 }
 
+private struct WorkspaceSearchFieldGlass<S: Shape>: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+    let shape: S
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .glassEffect(
+                    .regular
+                        .tint(colorScheme == .dark ? .black.opacity(0.28) : .black.opacity(0.38))
+                        .interactive(),
+                    in: shape
+                )
+        } else {
+            content
+                .clipShape(shape)
+        }
+    }
+}
+
 private struct ProjectSectionHeader: View {
     let project: CodexProject
     let isExpanded: Bool
     let isCreating: Bool
+    let canCreate: Bool
     let onToggle: () -> Void
     let onCreate: () -> Void
 
@@ -391,7 +472,7 @@ private struct ProjectSectionHeader: View {
                 .clipShape(Circle())
             }
             .buttonStyle(.plain)
-            .disabled(isCreating)
+            .disabled(isCreating || !canCreate)
         }
     }
 }
@@ -663,7 +744,7 @@ private struct WorkspaceSystemSearchBar: UIViewRepresentable {
 private enum WorkspaceSearchBarPalette {
     static let placeholderColor = UIColor { traitCollection in
         if traitCollection.userInterfaceStyle == .dark {
-            return UIColor(white: 0.72, alpha: 1)
+            return UIColor(white: 0.62, alpha: 1)
         } else {
             return UIColor(white: 0.34, alpha: 1)
         }

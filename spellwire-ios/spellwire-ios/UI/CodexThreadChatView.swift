@@ -81,6 +81,10 @@ struct CodexThreadChatView: View {
                     } else if let detail = currentDetail {
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 22) {
+                                if let cacheStatusMessage = service.cacheStatusMessage {
+                                    cacheStatusBanner(cacheStatusMessage)
+                                }
+
                                 ForEach(detail.timeline) { item in
                                     VStack(alignment: .leading, spacing: 12) {
                                         ThreadTimelineRow(
@@ -455,6 +459,7 @@ struct CodexThreadChatView: View {
                             ComposerIconButton(symbol: "plus")
                         }
                         .buttonStyle(.plain)
+                        .disabled(!service.canMutateRemotely)
 
                         Menu {
                             ForEach(service.availableModels) { model in
@@ -474,6 +479,7 @@ struct CodexThreadChatView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .disabled(!service.canMutateRemotely)
 
                         Menu {
                             ForEach(reasoningOptions, id: \.reasoningEffort) { option in
@@ -487,6 +493,7 @@ struct CodexThreadChatView: View {
                             ComposerChip(title: resolvedEffort?.capitalized ?? "Reasoning", minWidth: 74)
                         }
                         .buttonStyle(.plain)
+                        .disabled(!service.canMutateRemotely)
 
                         Menu {
                             ForEach(speedOptions, id: \.self) { speed in
@@ -500,6 +507,7 @@ struct CodexThreadChatView: View {
                             ComposerChip(title: speedLabel(resolvedSpeedTier), minWidth: 70)
                         }
                         .buttonStyle(.plain)
+                        .disabled(!service.canMutateRemotely)
                     }
 
                     Spacer(minLength: 0)
@@ -539,6 +547,7 @@ struct CodexThreadChatView: View {
                 } label: {
                     ComposerChip(title: currentBranchName ?? "No Branch", symbol: "point.topleft.down.curvedto.point.bottomright.up")
                 }
+                .disabled(!service.canMutateRemotely)
 
                 if currentDetail?.activeTurnID != nil {
                     Button("Interrupt") {
@@ -547,6 +556,7 @@ struct CodexThreadChatView: View {
                         }
                     }
                     .buttonStyle(.glass)
+                    .disabled(!service.canMutateRemotely)
                 }
             }
         }
@@ -564,6 +574,7 @@ struct CodexThreadChatView: View {
                 .font(.body)
                 .foregroundStyle(.white)
                 .tint(.white)
+                .disabled(!service.canMutateRemotely)
 
             if composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text("Ask spellwire")
@@ -600,7 +611,7 @@ struct CodexThreadChatView: View {
     }
 
     private var sendDisabled: Bool {
-        isSending || (composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty)
+        !service.canMutateRemotely || isSending || (composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty)
     }
 
     private var resolvedModel: ModelOption? {
@@ -814,6 +825,26 @@ struct CodexThreadChatView: View {
 
     private func speedLabel(_ speed: String) -> String {
         speed == "default" ? "Normal" : speed.capitalized
+    }
+
+    private func cacheStatusBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: service.isReadOnlyFallback ? "icloud.slash" : "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.82))
+
+            Text(message)
+                .font(.spellwireBody(14, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.82))
+                .multilineTextAlignment(.leading)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+        )
     }
 
     private var sendBackground: Color {
