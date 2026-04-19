@@ -30,7 +30,7 @@ struct CodexWorkspaceView: View {
     @State private var creatingProjectID: CodexProject.ID?
 
     private let searchHeaderHeight: CGFloat = 50
-    private let searchHeaderTopSpacing: CGFloat = 120
+    private let searchHeaderTopSpacing: CGFloat = 115
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -164,7 +164,7 @@ extension CodexWorkspaceView {
         Image("SpellwireHeaderLogo")
             .resizable()
             .aspectRatio(contentMode: .fit)
-            .frame(width: 36, height: 36)
+            .frame(width: 40, height: 40)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .accessibilityHidden(true)
     }
@@ -265,7 +265,7 @@ extension CodexWorkspaceView {
     }
 
     private var searchFieldBaseFill: Color {
-        colorScheme == .dark ? Color.black.opacity(0.14) : Color.black.opacity(0.24)
+        colorScheme == .dark ? Color.black.opacity(0.04) : Color.black.opacity(0.24)
     }
 
     @ViewBuilder
@@ -411,7 +411,7 @@ private struct WorkspaceSearchFieldGlass<S: Shape>: ViewModifier {
             content
                 .glassEffect(
                     .regular
-                        .tint(colorScheme == .dark ? .black.opacity(0.28) : .black.opacity(0.38))
+                        .tint(colorScheme == .dark ? .black.opacity(0.12) : .black.opacity(0.38))
                         .interactive(),
                     in: shape
                 )
