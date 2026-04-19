@@ -39,21 +39,20 @@ struct CodexWorkspaceView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    workspaceContent
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, searchHeaderTopSpacing + searchHeaderHeight + 14)
-                .padding(.bottom, 28)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                workspaceContent
             }
-            .scrollDismissesKeyboard(.immediately)
-            .scrollIndicators(.hidden)
-            .refreshable {
-                await service.refreshWorkspace(userInitiated: true)
-            }
-
+            .padding(.horizontal, 18)
+            .padding(.top, 0)
+            .padding(.bottom, 28)
+        }
+        .scrollDismissesKeyboard(.immediately)
+        .scrollIndicators(.hidden)
+        .refreshable {
+            await service.refreshWorkspace(userInitiated: true)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
             searchHeader
         }
         .background(Color.clear)
