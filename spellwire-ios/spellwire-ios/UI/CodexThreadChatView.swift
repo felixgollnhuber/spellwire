@@ -51,6 +51,8 @@ struct CodexThreadChatView: View {
     @State private var pendingOlderHistoryAnchorID: String?
     @State private var lastObservedLatestItemID: String?
     @State private var composerHeight: CGFloat = 0
+    @State private var lastExpandedToolScanThreadID: String?
+    @State private var lastExpandedToolScanCount = 0
     @FocusState private var composerFocused: Bool
 
     private let latestAnchorID = "thread-latest-anchor"
@@ -622,50 +624,29 @@ struct CodexThreadChatView: View {
     }
 
     private func threadScrollView(detail: CodexThreadDetail, proxy: ScrollViewProxy) -> some View {
-        ScrollView {
+        let cacheStatusMessage = service.cacheStatusMessage
+        let currentGitStatus = gitStatus
+        let inlineGitAnchorItemID = inlineGitActionAnchorItemID
+        let isCommitLoading = service.isExecutingGitCommit
+        let reversedTimelineIndices = Array(detail.timeline.indices.reversed())
+
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: 22) {
                 latestAnchor
 
-                if let cacheStatusMessage = service.cacheStatusMessage {
+                if let cacheStatusMessage {
                     cacheStatusBanner(cacheStatusMessage)
                         .scaleEffect(x: 1, y: -1)
                 }
 
-                ForEach(Array(detail.timeline.enumerated()).reversed(), id: \.element.id) { _, item in
-                    VStack(alignment: .leading, spacing: 12) {
-                        if item.id == inlineGitActionAnchorItemID, let gitStatus {
-                            ThreadGitInlineActionRow(
-                                status: gitStatus,
-                                isCommitLoading: service.isExecutingGitCommit,
-                                onOpenDiff: {
-                                    Task {
-                                        await openGitDiff()
-                                    }
-                                },
-                                onCommit: {
-                                    Task {
-                                        await openGitCommitSheet()
-                                    }
-                                }
-                            )
-                            .scaleEffect(x: 1, y: -1)
-                        }
-
-                        ThreadTimelineRow(
-                            item: item,
-                            imageResolver: imageResolver,
-                            isExpanded: expansionBinding(for: item),
-                            isCurrentTurn: item.turnID == detail.activeTurnID,
-                            onOpenImage: { preview in
-                                activeImagePreview = preview
-                            },
-                            onOpenFileLink: { url in
-                                handleMessageLink(url)
-                            }
-                        )
-                        .id(item.id)
-                        .scaleEffect(x: 1, y: -1)
-                    }
+                ForEach(reversedTimelineIndices, id: \.self) { index in
+                    transcriptRow(
+                        item: detail.timeline[index],
+                        activeTurnID: detail.activeTurnID,
+                        inlineGitAnchorItemID: inlineGitAnchorItemID,
+                        gitStatus: currentGitStatus,
+                        isCommitLoading: isCommitLoading
+                    )
                 }
 
                 olderHistorySection(detail: detail)
@@ -694,7 +675,7 @@ struct CodexThreadChatView: View {
         .onAppear {
             hydrateSelections(from: detail)
             hydratePreviewPort(for: detail.project.cwd)
-            expandActiveToolRows()
+            syncExpandedToolRows(with: detail)
             lastObservedLatestItemID = detail.timeline.last?.id
             if !didInitialScroll {
                 scrollToLatest(with: proxy, animated: false)
@@ -776,6 +757,52 @@ struct CodexThreadChatView: View {
         await service.loadOlderHistory()
     }
 
+    @ViewBuilder
+    private func transcriptRow(
+        item: CodexTimelineItem,
+        activeTurnID: String?,
+        inlineGitAnchorItemID: String?,
+        gitStatus: CodexGitStatus?,
+        isCommitLoading: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let inlineGitAnchorItemID, item.id == inlineGitAnchorItemID, let gitStatus {
+                ThreadGitInlineActionRow(
+                    status: gitStatus,
+                    isCommitLoading: isCommitLoading,
+                    onOpenDiff: {
+                        Task {
+                            await openGitDiff()
+                        }
+                    },
+                    onCommit: {
+                        Task {
+                            await openGitCommitSheet()
+                        }
+                    }
+                )
+                .scaleEffect(x: 1, y: -1)
+            }
+
+            EquatableView(
+                content: ThreadTimelineRow(
+                    item: item,
+                    imageResolver: imageResolver,
+                    isExpanded: expansionBinding(for: item),
+                    isCurrentTurn: item.turnID == activeTurnID,
+                    onOpenImage: { preview in
+                        activeImagePreview = preview
+                    },
+                    onOpenFileLink: { url in
+                        handleMessageLink(url)
+                    }
+                )
+            )
+            .id(item.id)
+            .scaleEffect(x: 1, y: -1)
+        }
+    }
+
     private func recomputeNearLatest(from frame: CGRect) {
         guard frame != .zero else { return }
         let distanceFromLatest = abs(frame.minY)
@@ -816,7 +843,7 @@ struct CodexThreadChatView: View {
         guard let detail = currentDetail else { return }
         hydrateSelections(from: detail)
         hydratePreviewPort(for: detail.project.cwd)
-        expandActiveToolRows()
+        syncExpandedToolRows(with: detail)
 
         let latestItemID = detail.timeline.last?.id
         let latestIsPendingLocal = latestItemID?.hasPrefix("local:") == true
@@ -873,10 +900,27 @@ struct CodexThreadChatView: View {
         )
     }
 
-    private func expandActiveToolRows() {
-        for item in currentDetail?.timeline ?? [] where item.kind != "userMessage" && item.kind != "agentMessage" && item.status == "inProgress" {
+    private func syncExpandedToolRows(with detail: CodexThreadDetail) {
+        if lastExpandedToolScanThreadID != detail.thread.id {
+            lastExpandedToolScanThreadID = detail.thread.id
+            lastExpandedToolScanCount = 0
+            expandedToolIDs.removeAll()
+        } else if detail.timeline.count < lastExpandedToolScanCount {
+            lastExpandedToolScanCount = 0
+        }
+
+        let candidateItems: ArraySlice<CodexTimelineItem>
+        if lastExpandedToolScanCount < detail.timeline.count {
+            candidateItems = detail.timeline[lastExpandedToolScanCount...]
+        } else {
+            candidateItems = detail.timeline.suffix(6)
+        }
+
+        for item in candidateItems where item.kind != "userMessage" && item.kind != "agentMessage" && item.status == "inProgress" {
             expandedToolIDs.insert(item.id)
         }
+
+        lastExpandedToolScanCount = detail.timeline.count
     }
 
     private func hydrateSelections(from detail: CodexThreadDetail) {
@@ -1119,7 +1163,13 @@ private struct ThreadLoadingShellCard: View {
     }
 }
 
-private struct ThreadTimelineRow: View {
+private struct ThreadTimelineRow: View, Equatable {
+    static func == (lhs: ThreadTimelineRow, rhs: ThreadTimelineRow) -> Bool {
+        lhs.item == rhs.item
+            && lhs.isCurrentTurn == rhs.isCurrentTurn
+            && lhs.isExpanded == rhs.isExpanded
+    }
+
     @Environment(\.colorScheme) private var colorScheme
     let item: CodexTimelineItem
     let imageResolver: ThreadImageResolver
@@ -1560,21 +1610,35 @@ private final class ThreadMarkdownCache {
 
     private var cache: [MarkdownCacheKey: AttributedString] = [:]
 
-    func attributedString(itemID: String, text: String) -> AttributedString? {
-        let key = MarkdownCacheKey(itemID: itemID, text: text)
+    func attributedString(itemID: String, text: String, colorScheme: ColorScheme) -> AttributedString? {
+        let key = MarkdownCacheKey(itemID: itemID, text: text, theme: colorScheme == .dark ? .dark : .light)
         if let cached = cache[key] {
             return cached
         }
         guard let parsed = try? AttributedString(markdown: text) else {
             return nil
         }
-        cache[key] = parsed
-        return parsed
+        let foregroundColor: Color = colorScheme == .dark ? .white : .black
+        var display = parsed
+        for run in display.runs {
+            let range = run.range
+            if display[range].foregroundColor == nil {
+                display[range].foregroundColor = foregroundColor
+            }
+        }
+        cache[key] = display
+        return display
     }
 
     private struct MarkdownCacheKey: Hashable {
         let itemID: String
         let text: String
+        let theme: Theme
+    }
+
+    private enum Theme: Hashable {
+        case light
+        case dark
     }
 }
 
@@ -1588,20 +1652,13 @@ private struct MarkdownMessageText: View {
         colorScheme == .dark ? .white : .black
     }
 
-    private func displayAttributedString(from attributed: AttributedString) -> AttributedString {
-        var display = attributed
-        for run in display.runs {
-            let range = run.range
-            if display[range].foregroundColor == nil {
-                display[range].foregroundColor = primaryTextColor
-            }
-        }
-        return display
-    }
-
     var body: some View {
-        if let attributed = ThreadMarkdownCache.shared.attributedString(itemID: itemID, text: text) {
-            Text(displayAttributedString(from: attributed))
+        if let attributed = ThreadMarkdownCache.shared.attributedString(
+            itemID: itemID,
+            text: text,
+            colorScheme: colorScheme
+        ) {
+            Text(attributed)
                 .font(.body)
                 .environment(\.openURL, OpenURLAction(handler: onOpenLink))
         } else {
