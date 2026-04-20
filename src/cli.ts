@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { daemonRequest, daemonRunning, waitForDaemonReady } from "./helper/daemon-client.js";
 import { runForegroundDaemon } from "./helper/daemon.js";
-import { installLaunchAgent, launchAgentInstalled, uninstallLaunchAgent } from "./helper/launch-agent.js";
+import { helperServiceInstalled, installHelperService, uninstallHelperService } from "./helper/service-manager.js";
 import { readDaemonState } from "./helper/state-store.js";
 import { ensureRuntimeDirectories, runtimePaths, spellwireVersion } from "./shared/runtime-paths.js";
 
@@ -15,12 +15,12 @@ async function main(): Promise<void> {
 
     switch (command) {
         case "up":
-            await installLaunchAgent(paths);
+            await installHelperService(paths);
             await waitForDaemonReady(paths);
             console.log(JSON.stringify(await daemonRequest(paths, "helper.status", {}), null, 2));
             break;
         case "stop":
-            await uninstallLaunchAgent(paths);
+            await uninstallHelperService(paths);
             console.log(JSON.stringify({ stopped: true }, null, 2));
             break;
         case "status":
@@ -100,9 +100,13 @@ async function main(): Promise<void> {
 async function doctor(): Promise<Record<string, unknown>> {
     const codex = spawnSync("which", ["codex"], { encoding: "utf8" });
     const node = spawnSync("which", ["node"], { encoding: "utf8" });
+    const serviceInstalled = await helperServiceInstalled(paths);
     return {
         helperVersion: spellwireVersion(),
-        launchAgentInstalled: await launchAgentInstalled(paths),
+        platform: paths.platform,
+        serviceManager: paths.serviceManager,
+        helperServiceInstalled: serviceInstalled,
+        launchAgentInstalled: paths.serviceManager === "launch-agent" ? serviceInstalled : false,
         daemonRunning: await daemonRunning(paths.socketPath),
         codexPath: codex.status === 0 ? codex.stdout.trim() : null,
         nodePath: node.status === 0 ? node.stdout.trim() : null,

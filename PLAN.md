@@ -16,6 +16,7 @@ It assumes:
 
 - Milestone 1 is effectively in place: repo-facing docs now align on the SSH-only, local-first architecture.
 - Milestone 2 is scaffolded in code: the repo now ships a buildable TypeScript `spellwire` helper with the public CLI contract, LaunchAgent plumbing, daemon socket bridge, logs, doctor/status flows, and JSON RPC transport.
+- The helper lifecycle scaffold now runs through a LaunchAgent on macOS and a detached background process on Linux for local helper development and CLI validation, while the supported product host remains macOS in v1.
 - Milestone 3 is partially implemented in `spellwire-ios/`: the iPhone app now generates and stores an Ed25519 key, exports the OpenSSH public key, and pins host fingerprints instead of storing passwords.
 - Milestone 4 is partially implemented: the helper owns Codex app-server attachment, project/thread listing, thread open/read, turn send/steer/interrupt, desktop handoff, preview discovery, and rollout-tail recovery scaffolding.
 - Milestone 5 has a rudimentary interactive iPhone surface: browse projects and threads, open a thread into a recent-history window, lazily page older history, stream deltas, send prompts, interrupt, refresh, hand off to the Mac, and surface helper-owned Git working-tree state for the selected thread.
@@ -61,6 +62,7 @@ Create the Mac helper as a background-first npm package with a usable local CLI 
 
 - `spellwire` npm package and versioning
 - LaunchAgent install/start/stop flow
+- detached background-process fallback for local Linux helper development and CLI validation
 - helper runtime lifecycle management
 - foreground debug mode
 - structured logs
@@ -74,6 +76,7 @@ Create the Mac helper as a background-first npm package with a usable local CLI 
 **Acceptance Criteria**
 
 - `spellwire up`, `stop`, `status`, `logs`, `doctor`, and `rpc` behave consistently on macOS.
+- The same CLI lifecycle works on Linux for local helper development without requiring `launchctl`.
 - LaunchAgent and foreground debug mode can target the same helper runtime contract.
 - iOS-facing helper commands return JSON, not human-only text.
 - SSH exec bootstrap commands remain shell-neutral instead of depending on the user's login shell to parse POSIX script syntax.
@@ -81,7 +84,7 @@ Create the Mac helper as a background-first npm package with a usable local CLI 
 **v1 Non-Goals**
 
 - Homebrew distribution
-- Linux service management
+- distro-specific Linux service integration such as `systemd`
 
 ## Milestone 3: Manual SSH Onboarding and Trust Storage
 

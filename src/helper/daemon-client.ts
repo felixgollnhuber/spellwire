@@ -65,7 +65,7 @@ export async function daemonRunning(socketPath: string): Promise<boolean> {
     }
 }
 
-export async function waitForDaemonReady(paths: RuntimePaths, timeoutMs = 10_000): Promise<void> {
+export async function waitForDaemonReady(paths: RuntimePaths, timeoutMs = 20_000): Promise<void> {
     const startedAt = Date.now();
     let lastError: Error | null = null;
 

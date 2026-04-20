@@ -267,6 +267,8 @@ test("SpellwireDaemon forwards thread list filters and stops after the requested
 
 function makeRuntimePaths(root: string): RuntimePaths {
     return {
+        platform: "linux",
+        serviceManager: "background-process",
         packageRoot: root,
         runtimeRoot: root,
         attachmentsRootPath: path.join(root, "attachments"),

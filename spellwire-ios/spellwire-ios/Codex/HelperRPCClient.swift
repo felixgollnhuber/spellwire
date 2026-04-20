@@ -508,16 +508,24 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
         }
     }
 
-    private var helperRPCLaunchCommand: String {
-        let script = """
-        export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin:$HOME/.local/bin:$HOME/Library/pnpm:$PATH"
+    static func helperRPCBootstrapScript() -> String {
+        """
+        export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$HOME/.local/share/pnpm:$HOME/.volta/bin:$HOME/.asdf/shims:$HOME/.nvm/current/bin:$HOME/Library/pnpm:$PATH"
         if command -v spellwire >/dev/null 2>&1; then
             exec "$(command -v spellwire)" rpc
         fi
 
-        for candidate in "$HOME/.local/bin/spellwire" "$HOME/Library/pnpm/spellwire" /opt/homebrew/bin/spellwire /usr/local/bin/spellwire; do
-            if [ -x "$candidate" ]; then
-                exec "$candidate" rpc
+        for candidate_dir in "$HOME/.local/bin" "$HOME/.npm-global/bin" "$HOME/.local/share/pnpm" "$HOME/.volta/bin" "$HOME/.asdf/shims" "$HOME/.nvm/current/bin" "$HOME/Library/pnpm" /opt/homebrew/bin /usr/local/bin /usr/bin; do
+            if [ -x "$candidate_dir/spellwire" ]; then
+                export PATH="$candidate_dir:$PATH"
+                exec "$candidate_dir/spellwire" rpc
+            fi
+        done
+
+        for nvm_bin in "$HOME/.nvm/versions/node"/*/bin; do
+            if [ -x "$nvm_bin/spellwire" ]; then
+                export PATH="$nvm_bin:$PATH"
+                exec "$nvm_bin/spellwire" rpc
             fi
         done
 
@@ -531,6 +539,10 @@ final class HelperRPCClient: HelperRPCTransportDelegate {
         echo "spellwire not found in PATH=$PATH" >&2
         exit 127
         """
+    }
+
+    private var helperRPCLaunchCommand: String {
+        let script = Self.helperRPCBootstrapScript()
 
         // Send a shell-neutral command string through the account shell so the
         // POSIX bootstrap keeps working for fish, zsh, bash, and similar setups.

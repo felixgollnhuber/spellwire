@@ -21,6 +21,7 @@ Spellwire is not a hosted control plane, does not depend on a relay, and does no
 ## Current State
 
 - The repo now contains a buildable TypeScript helper scaffold at the repo root under `src/` plus npm metadata and tests.
+- The helper lifecycle scaffold now uses a LaunchAgent on macOS and a detached background process on Linux for local helper development and CLI validation; the supported Spellwire host target in v1 remains macOS.
 - `spellwire-ios/` now includes Ed25519 key onboarding, host fingerprint pinning, a shared SSH identity model, and a rudimentary Codex-first workspace for browsing projects and threads, opening threads with a recent-history window, lazily loading older history, sending prompts, interrupting turns, opening a thread on the Mac, and surfacing helper-owned Git status, diff, and commit actions for the selected thread `cwd`.
 - The helper-owned sync layer, rollout recovery, desktop handoff, terminal, file manager, preview flows, and new Git working-tree actions exist as early implementations and are not production-complete yet.
 - The current docs must describe that reality honestly.
@@ -63,6 +64,7 @@ Use one SSH trust model with separate channels for:
 
 - The Mac helper is a globally installed npm package exposed as the `spellwire` CLI.
 - The helper runs background-first as a LaunchAgent and must also support foreground debugging, logs, status, and diagnostics from Terminal.
+- For local non-macOS helper development, the CLI may fall back to a detached background process instead of `launchctl`, but that does not change the macOS-only host target for v1.
 - The public CLI contract is:
   - `spellwire up`
   - `spellwire stop`

@@ -5,6 +5,8 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 export interface RuntimePaths {
+    platform: NodeJS.Platform;
+    serviceManager: "launch-agent" | "background-process";
     packageRoot: string;
     runtimeRoot: string;
     attachmentsRootPath: string;
@@ -46,24 +48,37 @@ export function spellwireVersion(): string {
     return packageMetadata.version;
 }
 
-export function runtimePaths(): RuntimePaths {
-    const runtimeRoot = path.join(os.homedir(), "Library", "Application Support", "Spellwire");
+export function runtimePaths(overrides: {
+    platform?: NodeJS.Platform;
+    homeDirectory?: string;
+    env?: NodeJS.ProcessEnv;
+} = {}): RuntimePaths {
+    const platform = overrides.platform ?? process.platform;
+    const homeDirectory = overrides.homeDirectory ?? os.homedir();
+    const env = overrides.env ?? process.env;
+    const runtimeRoot = resolveRuntimeRoot(platform, homeDirectory, env);
     const logRoot = path.join(runtimeRoot, "logs");
     const runRoot = path.join(runtimeRoot, "run");
     const stateRoot = path.join(runtimeRoot, "state");
     const launchAgentLabel = "dev.spellwire.helper";
+    const serviceManager = platform === "darwin" ? "launch-agent" : "background-process";
 
-    const inheritedPath = process.env.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin";
-    const codexExecutablePath = resolveExecutablePath("codex");
+    const inheritedPath = env.PATH ?? defaultPathForPlatform(platform);
+    const codexExecutablePath = resolveExecutablePath("codex", inheritedPath, env);
 
     return {
+        platform,
+        serviceManager,
         packageRoot,
         runtimeRoot,
         attachmentsRootPath: path.join(runtimeRoot, "attachments"),
         socketPath: path.join(runRoot, "spellwire-helper.sock"),
         stateFilePath: path.join(stateRoot, "helper-state.json"),
         logFilePath: path.join(logRoot, "helper.jsonl"),
-        launchAgentPlistPath: path.join(os.homedir(), "Library", "LaunchAgents", `${launchAgentLabel}.plist`),
+        launchAgentPlistPath:
+            platform === "darwin"
+                ? path.join(homeDirectory, "Library", "LaunchAgents", `${launchAgentLabel}.plist`)
+                : path.join(runtimeRoot, "launch-agents", `${launchAgentLabel}.plist`),
         launchAgentLabel,
         launchAgentStdoutPath: path.join(logRoot, "launch-agent.stdout.log"),
         launchAgentStderrPath: path.join(logRoot, "launch-agent.stderr.log"),
@@ -74,12 +89,34 @@ export function runtimePaths(): RuntimePaths {
     };
 }
 
-function resolveExecutablePath(command: string): string | null {
+function resolveRuntimeRoot(platform: NodeJS.Platform, homeDirectory: string, env: NodeJS.ProcessEnv): string {
+    if (platform === "darwin") {
+        return path.join(homeDirectory, "Library", "Application Support", "Spellwire");
+    }
+
+    if (platform === "linux") {
+        const stateHome = env.XDG_STATE_HOME?.trim();
+        if (stateHome && path.isAbsolute(stateHome)) {
+            return path.join(stateHome, "spellwire");
+        }
+        return path.join(homeDirectory, ".local", "state", "spellwire");
+    }
+
+    return path.join(homeDirectory, ".spellwire");
+}
+
+function defaultPathForPlatform(platform: NodeJS.Platform): string {
+    return platform === "darwin"
+        ? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        : "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+}
+
+function resolveExecutablePath(command: string, inheritedPath: string, env: NodeJS.ProcessEnv): string | null {
     const result = spawnSync("which", [command], {
         encoding: "utf8",
         env: {
-            ...process.env,
-            PATH: process.env.PATH ?? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            ...env,
+            PATH: inheritedPath,
         },
     });
     if (result.status !== 0) {

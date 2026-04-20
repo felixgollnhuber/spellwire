@@ -48,6 +48,16 @@ final class HelperRPCClientTests: XCTestCase {
         XCTAssertEqual(transport.connectCalls, 1)
         XCTAssertEqual(Set(transport.receivedMethods), Set(["first", "second"]))
     }
+
+    func testBootstrapScriptSearchesCommonLinuxNodeInstallLocations() {
+        let script = HelperRPCClient.helperRPCBootstrapScript()
+
+        XCTAssertTrue(script.contains("$HOME/.nvm/versions/node"))
+        XCTAssertTrue(script.contains("$HOME/.volta/bin"))
+        XCTAssertTrue(script.contains("$HOME/.asdf/shims"))
+        XCTAssertTrue(script.contains("$HOME/.local/share/pnpm"))
+        XCTAssertTrue(script.contains("$HOME/.npm-global/bin"))
+    }
 }
 
 private struct HelperRPCClientTestRequestEnvelope: Decodable {

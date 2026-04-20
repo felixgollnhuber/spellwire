@@ -5,6 +5,7 @@
 Spellwire is an iPhone-first remote control for Codex on macOS. It connects directly to your Mac over SSH on the local network or through Tailscale, keeps its view aligned with the same local Codex environment used by `Codex.app`, and does not depend on a relay or hosted control plane.
 
 > Status: alpha. This repo now includes a buildable TypeScript helper scaffold in `src/` and a rudimentary interactive iPhone client in `spellwire-ios/`. Helper-owned Codex sync, recent-window thread opens with lazy older-history paging, Git status and commit flows, rollout recovery, terminal, files, and preview surfaces are present as early implementations and are not production-ready yet.
+> The helper lifecycle scaffold uses a LaunchAgent on macOS and a detached background process on Linux for local development and CLI validation. Spellwire's supported host target for the product remains macOS in v1.
 
 ![Platform](https://img.shields.io/badge/platform-iOS%2026.4%2B%20%7C%20macOS-black)
 ![Transport](https://img.shields.io/badge/transport-SSH%20only-111827)
@@ -67,7 +68,7 @@ flowchart LR
 
     subgraph Mac["macOS host"]
         SSHD["sshd<br/>Remote Login"]
-        HELPER["spellwire helper<br/>LaunchAgent + CLI"]
+        HELPER["spellwire helper<br/>LaunchAgent on macOS<br/>background process on Linux dev"]
         RPC["spellwire rpc<br/>JSON over stdio"]
         OPEN["spellwire open &lt;threadId&gt;"]
         PRELIST["spellwire previews list"]
@@ -208,6 +209,7 @@ The setup command shown for `authorized_keys` is intended to stay shell-neutral 
 Today this repository includes:
 
 - a buildable TypeScript helper scaffold under `src/` with `spellwire up|stop|status|logs|doctor|rpc|open <threadId>|previews list`
+- macOS LaunchAgent helper lifecycle support plus a Linux detached-process fallback for local helper development and CLI validation
 - helper tests under `test/` for runtime paths, launch-agent generation, thread mapping, rollout recovery indexing, and Git working-tree RPC behavior
 - `spellwire-ios/` with host onboarding, Ed25519 identity management, host fingerprint pinning, a Codex-first workspace, helper-owned Git diff and commit UI, and secondary terminal/file/preview surfaces
 - shared project assets under `.github/assets/`
